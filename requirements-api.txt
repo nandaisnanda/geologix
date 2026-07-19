@@ -1,0 +1,11 @@
+# Dependensi MINIMAL backend FastAPI (src/api/main.py) untuk deploy Render —
+# SPEC.md Fase 5 step 19. requirements.txt penuh memuat stack geoprocessing
+# (geopandas/osmnx/rasterio) yang hanya dipakai pipeline di GitHub Actions;
+# API cuma butuh SQLAlchemy + FastAPI (import chain: api.main -> db.writer ->
+# db.models -> config).
+SQLAlchemy>=2.0
+GeoAlchemy2>=0.14
+psycopg2-binary>=2.9
+python-dotenv>=1.0
+fastapi>=0.115
+uvicorn>=0.30

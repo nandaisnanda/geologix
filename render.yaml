@@ -1,0 +1,17 @@
+# Blueprint Render — backend FastAPI GeoLogix (SPEC.md Fase 5 step 19).
+# Deploy: dashboard.render.com -> New -> Blueprint -> pilih repo ini.
+# DATABASE_URL diisi manual di dashboard (sync: false) — jangan commit secret.
+services:
+  - type: web
+    name: geologix-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements-api.txt
+    startCommand: uvicorn src.api.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+      - key: DATABASE_URL
+        sync: false
+      - key: API_CORS_ORIGINS
+        value: "*" # persempit ke URL Vercel setelah frontend dideploy
