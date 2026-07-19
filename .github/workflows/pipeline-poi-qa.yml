@@ -1,5 +1,8 @@
-# pipeline-poi-qa — Pipeline 2 POI Validation harian (SPEC.md Bagian 2 Fase 4
-# step 15: cron harian untuk P2).
+# pipeline-poi-qa — Pipeline 2 POI Validation (SPEC.md Bagian 2 Fase 4
+# step 15). KEPUTUSAN Fase 4: 2x seminggu (Sen/Kam), bukan harian — repo
+# PRIVATE berkuota 2.000 menit Actions/bulan (mitigasi batas menit sesuai
+# SPEC Bagian 10); sumber .shp.zip Geofabrik pun hanya di-refresh mingguan,
+# jadi run harian mayoritas mengolah data yang sama.
 #
 # Sumber data = java-latest-free.shp.zip (2.2GB, layer POI + roads) — jalur
 # shapefile TERPISAH dari .pbf Pipeline 1 (SPEC 5.2c, jangan dicampur).
@@ -12,7 +15,7 @@ name: pipeline-poi-qa
 
 on:
   schedule:
-    - cron: "45 1 * * *" # harian 01:45 UTC (08:45 WIB)
+    - cron: "45 1 * * 1,4" # Sen/Kam 01:45 UTC (08:45 WIB)
   workflow_dispatch: {}
 
 concurrency:

@@ -34,6 +34,14 @@
   - Hasil tersimpan di DB schema konsisten.
 
 ## Keputusan penting (sesi Fase 4 lanjutan)
+- **Repo TETAP PRIVATE (keputusan user, final — alasan: anti-copas).**
+  Konsekuensi kuota 2.000 menit Actions/bulan ditangani dengan JADWAL HEMAT
+  (total ±1.500 menit/bulan): weather-risk per 6 jam (`7 */6 * * *`, ~4,3k
+  unit Open-Meteo/hari), road-qa Sen/Rab/Jum (+ Minggu via workflow_run),
+  poi-qa Sen/Kam, osm-refresh tetap mingguan. Justifikasi = mitigasi SPEC
+  Bagian 10 ("jadwalkan pipeline besar tidak terlalu sering"). Kalau repo
+  nanti di-public-kan (mis. saat melamar), jadwal boleh dinaikkan lagi
+  (weather per 3 jam = batas budget Open-Meteo).
 - **Sumber temuan P4 = P1 + P2 saja** (SPEC Bagian 3 P4: severity "dari
   P1/P2"): grid risiko P3 kontinu per jam, bukan "error yang bisa
   diperbaiki" — tak punya severity/ease bermakna; P3 masuk ringkasan lewat

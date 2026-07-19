@@ -1,10 +1,12 @@
-# pipeline-road-qa — Pipeline 1 Road Network QA harian (SPEC.md Bagian 2
-# Fase 4 step 15: cron harian untuk P1).
+# pipeline-road-qa — Pipeline 1 Road Network QA (SPEC.md Bagian 2 Fase 4
+# step 15). KEPUTUSAN Fase 4: 3x seminggu (Sen/Rab/Jum), bukan harian —
+# repo PRIVATE berkuota 2.000 menit Actions/bulan; SPEC Bagian 10 sendiri
+# memitigasi batas menit dengan "jadwalkan pipeline besar tidak terlalu
+# sering". Data jalan OSM tidak berubah cukup cepat untuk butuh harian.
 #
 # Dependency antar-workflow (SPEC 5.2b): pada hari refresh OSM (Minggu),
-# pipeline ini TIDAK jalan dari cron melainkan dipicu workflow_run setelah
-# pipeline-osm-refresh SELESAI SUKSES — jadwal cron sengaja "1-6" (Sen-Sab)
-# supaya tidak dobel di hari Minggu.
+# pipeline ini dipicu workflow_run setelah pipeline-osm-refresh SELESAI
+# SUKSES — cron sengaja tidak memuat hari Minggu supaya tidak dobel.
 #
 # Jalur produksi dari .pbf (docstring graph_builder.py, WAJIB 2 tahap):
 #   osmium tags-filter <pbf> w/highway=... -o roads.osm.pbf
@@ -18,7 +20,7 @@ name: pipeline-road-qa
 
 on:
   schedule:
-    - cron: "30 2 * * 1-6" # harian Sen-Sab 02:30 UTC (09:30 WIB)
+    - cron: "30 2 * * 1,3,5" # Sen/Rab/Jum 02:30 UTC (09:30 WIB) + Minggu via workflow_run
   workflow_run:
     workflows: [pipeline-osm-refresh]
     types: [completed] # Minggu: jalan setelah refresh selesai
