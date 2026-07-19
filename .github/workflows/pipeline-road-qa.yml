@@ -1,8 +1,12 @@
 # pipeline-road-qa — Pipeline 1 Road Network QA (SPEC.md Bagian 2 Fase 4
-# step 15). KEPUTUSAN Fase 4: 3x seminggu (Sen/Rab/Jum), bukan harian —
-# repo PRIVATE berkuota 2.000 menit Actions/bulan; SPEC Bagian 10 sendiri
-# memitigasi batas menit dengan "jadwalkan pipeline besar tidak terlalu
-# sering". Data jalan OSM tidak berubah cukup cepat untuk butuh harian.
+# step 15). KEPUTUSAN Fase 4: bukan harian — repo PRIVATE berkuota 2.000
+# menit Actions/bulan; SPEC Bagian 10 sendiri memitigasi batas menit dengan
+# "jadwalkan pipeline besar tidak terlalu sering". Data jalan OSM tidak
+# berubah cukup cepat untuk butuh harian.
+# KEPUTUSAN 2026-07-20 (utang kuota PROGRESS.md): run pertama terbukti 57
+# menit (swap-thrash) -> jadwal diturunkan Sen/Rab/Jum ke Sen/Kam; dengan
+# Minggu via workflow_run = 3 run/minggu ~ 735 mnt/bulan (total semua
+# workflow ~ 1.500 dari kuota 2.000).
 #
 # Dependency antar-workflow (SPEC 5.2b): pada hari refresh OSM (Minggu),
 # pipeline ini dipicu workflow_run setelah pipeline-osm-refresh SELESAI
@@ -20,7 +24,7 @@ name: pipeline-road-qa
 
 on:
   schedule:
-    - cron: "30 2 * * 1,3,5" # Sen/Rab/Jum 02:30 UTC (09:30 WIB) + Minggu via workflow_run
+    - cron: "30 2 * * 1,4" # Sen/Kam 02:30 UTC (09:30 WIB) + Minggu via workflow_run
   workflow_run:
     workflows: [pipeline-osm-refresh]
     types: [completed] # Minggu: jalan setelah refresh selesai
@@ -113,5 +117,14 @@ jobs:
             -o data/raw/roads.osm.pbf --overwrite
           osmium cat data/raw/roads.osm.pbf -o data/raw/roads.osm --overwrite
 
+      # Utang keputusan PROGRESS.md (2026-07-20):
+      # --boundary-jabodetabek : buang dangling artefak clip tepi area
+      #   (node hasil potong osmium jatuh di luar poligon administratif).
+      # --dangling-persist major : simpan hanya dangling kelas jalan besar
+      #   (motorway..tertiary) — run pertama 182.848 dangling didominasi
+      #   ujung gang/cul-de-sac perumahan, ±730rb baris/minggu tidak
+      #   berkelanjutan; hitungan penuh tetap tercatat di pipeline_logs.
       - name: Jalankan Pipeline 1 Road QA
-        run: python -m src.pipeline_1_road_qa --xml data/raw/roads.osm
+        run: >
+          python -m src.pipeline_1_road_qa --xml data/raw/roads.osm
+          --boundary-jabodetabek --dangling-persist major

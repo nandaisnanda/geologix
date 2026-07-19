@@ -20,6 +20,7 @@ selesai dipetakan), tidak separah subjaringan terisolasi/arah salah.
 """
 
 import networkx as nx
+import shapely
 from shapely.geometry import MultiPolygon, Point, Polygon
 
 from src import config
@@ -31,15 +32,34 @@ SEVERITY = "medium"
 CULDESAC_HIGHWAY_TAGS = {"turning_circle", "turning_loop"}
 
 
+def _incident_highway(G: nx.MultiDiGraph, node, neighbor) -> str | None:
+    """Kelas ``highway`` edge yang menempel di node degree-1 (arah bebas).
+
+    Simplifikasi OSMnx bisa menyimpan list -> ambil elemen pertama (konsisten
+    perlakuan ``osmid`` di detect_oneway_issues).
+    """
+    data = G.get_edge_data(node, neighbor) or G.get_edge_data(neighbor, node) or {}
+    for edge_attrs in data.values():
+        highway = edge_attrs.get("highway")
+        if highway:
+            return highway[0] if isinstance(highway, list) else highway
+    return None
+
+
 def detect_dangling_nodes(
     G: nx.MultiDiGraph,
     boundary: Polygon | MultiPolygon | None = None,
 ) -> list[dict]:
     """Return temuan dangling node sebagai list dict siap tulis ke ``road_errors``.
 
-    Tiap dict: ``osm_node_id``, ``error_type``, ``severity``, ``lon``, ``lat``.
+    Tiap dict: ``osm_node_id``, ``error_type``, ``severity``, ``lon``, ``lat``,
+    plus ``highway`` (kelas jalan edge yang menempel — dipakai kebijakan
+    persistensi runner, bukan bagian deteksi SPEC 3.1; kolom ini tidak ikut
+    tersimpan ke ``road_errors``).
     """
     simple = nx.Graph(G)  # collapse arah + edge paralel, sesuai definisi degree 3.1
+    if boundary is not None:
+        shapely.prepare(boundary)  # contains() ratusan ribu titik -> prepared geometry
     findings = []
     for node, degree in simple.degree():
         if degree != config.DANGLING_NODE_DEGREE:
@@ -50,6 +70,7 @@ def detect_dangling_nodes(
         lon, lat = data["x"], data["y"]
         if boundary is not None and not boundary.contains(Point(lon, lat)):
             continue  # artefak pemotongan boundary, bukan error data
+        neighbor = next(iter(simple[node]))
         findings.append(
             {
                 "osm_node_id": node,
@@ -57,6 +78,7 @@ def detect_dangling_nodes(
                 "severity": SEVERITY,
                 "lon": lon,
                 "lat": lat,
+                "highway": _incident_highway(G, node, neighbor),
             }
         )
     return findings

@@ -55,6 +55,37 @@ def test_dangling_kecualikan_artefak_luar_boundary():
     assert ids == {"a"}
 
 
+def test_dangling_dianotasi_kelas_highway_edge():
+    # Kelas jalan edge yang menempel ikut di temuan (utk kebijakan persistensi
+    # runner — bukan bagian deteksi SPEC 3.1). List OSMnx -> elemen pertama.
+    G = _path_graph_twoway({"a": (0, 0), "b": (1, 0), "c": (2, 0)})
+    for u, v, k in G.edges(keys=True):
+        G.edges[u, v, k]["highway"] = "primary" if {u, v} == {"a", "b"} else ["residential", "service"]
+    by_id = {f["osm_node_id"]: f for f in detect_dangling_nodes(G)}
+    assert by_id["a"]["highway"] == "primary"
+    assert by_id["c"]["highway"] == "residential"
+
+
+def test_split_dangling_kebijakan_persistensi():
+    from src.pipeline_1_road_qa.__main__ import MAJOR_HIGHWAY_CLASSES, split_dangling
+
+    findings = [
+        {"osm_node_id": 1, "highway": "primary"},
+        {"osm_node_id": 2, "highway": "residential"},
+        {"osm_node_id": 3, "highway": None},
+        {"osm_node_id": 4, "highway": "tertiary_link"},
+    ]
+    assert "tertiary_link" in MAJOR_HIGHWAY_CLASSES
+    kept, skipped = split_dangling(findings, "major")
+    assert [f["osm_node_id"] for f in kept] == [1, 4] and skipped == 2
+    kept, skipped = split_dangling(findings, "all")
+    assert len(kept) == 4 and skipped == 0
+    kept, skipped = split_dangling(findings, "none")
+    assert kept == [] and skipped == 4
+    with pytest.raises(ValueError):
+        split_dangling(findings, "aneh")
+
+
 def test_dangling_persimpangan_bukan_temuan():
     # Node tengah persimpangan (degree 3) dan node jalur (degree 2) bukan dangling.
     G = _path_graph_twoway({"a": (0, 0), "b": (1, 0), "c": (2, 0)})
