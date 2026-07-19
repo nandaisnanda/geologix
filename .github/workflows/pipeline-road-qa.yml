@@ -79,6 +79,19 @@ jobs:
             data/raw/osm_replication_state.txt
           key: osm-jabodetabek-v1-${{ github.run_id }}
 
+      # Insiden run pertama (2026-07-19, run 29689278980): runner shutdown di
+      # tengah graph_from_xml tanpa output = kehabisan RAM 16GB (parsing XML
+      # jalan se-Jabodetabek -> MultiDiGraph rakus memori). Swap di /mnt
+      # (disk temp runner, ~60GB lega) memberi headroom; lebih lambat saat
+      # menyentuh swap, tapi selesai — budget timeout-minutes 90 masih cukup.
+      - name: Tambah swap 16GB (graph Jabodetabek > RAM runner)
+        run: |
+          sudo fallocate -l 16G /mnt/swapfile
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
+          free -h
+
       - name: Konversi .pbf -> OSM XML jalan drivable (2 tahap wajib)
         run: |
           osmium tags-filter data/raw/jabodetabek.osm.pbf \
