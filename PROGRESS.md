@@ -1,8 +1,68 @@
 # PROGRESS.md — GeoLogix AI
 
-## Status: Fase 5 — BACKEND + FRONTEND JALAN LOKAL (step 17-18 SPEC selesai,
-## 2026-07-20). Observasi otomatis 3 hari (SPEC step 16) BERJALAN s/d 22 Juli.
-## Sisa Fase 5: deploy (step 19) — ditunda sampai 2 utang keputusan beres.
+## Status: FASE 5 SELESAI 100% + 2 UTANG KEPUTUSAN BERES (2026-07-20).
+## LIVE: dashboard https://geologix.vercel.app + API
+## https://geologix-api.onrender.com (DB tetap Supabase).
+## Observasi otomatis 3 hari (SPEC step 16) berjalan s/d 22 Juli.
+## Selanjutnya: Fase 6 (README + narasi) — TAPI cek dulu 3 hal "MENGGANTUNG
+## SAAT /clear" di bawah. ml/ TETAP TERLARANG (Fase 6 belum + log baru 2 hari).
+
+## MENGGANTUNG SAAT /clear (cek di awal sesi baru!)
+1. **Run CI road-qa 29697090519 masih in_progress saat sesi ditutup** — run
+   PERTAMA dengan filter baru (--boundary-jabodetabek --dangling-persist
+   major). Cek: `gh run view 29697090519` + log pipeline_logs terbaru.
+   Ekspektasi: dangling terdeteksi ~180rb tapi dangling_saved KECIL (hanya
+   motorway..tertiary), disconnected/oneway ~300/400. Kalau gagal/timeout
+   (budget 90 mnt; boundary contains 180rb titik menambah waktu) — prioritas.
+2. **P4 BELUM di-rerun** — road_errors sudah bersih (tinggal 423 baris sample
+   Menteng + hasil run CI baru kalau sukses). Jalankan
+   `python -m src.pipeline_4_aggregator` SETELAH run #1 terverifikasi;
+   aggregated_findings lama (519 baris, sumber sample Menteng) masih di DB.
+3. **Cron pertama belum terbukti** — weather-risk jadwal 01:07 WIB 20 Jul
+   (18:07Z 19 Jul) belum muncul saat sesi ditutup (delay GitHub biasa).
+   Cek `gh run list` — kalau TIDAK ada run `[schedule]` sama sekali s/d
+   pagi 20 Jul, ada masalah cron yang harus diinvestigasi.
+
+## Selesai (sesi lanjutan Fase 5, 2026-07-20 — 2 utang + deploy + live)
+- **Utang #1 BERES** (commit 74dc07a): runner P1 kini punya
+  `--boundary-jabodetabek` (reuse dissolve P3, prepared geometry) — buang
+  dangling artefak clip tepi; dan `--dangling-persist {all,major,none}` —
+  keputusan user: **major** = simpan hanya dangling motorway..tertiary(+link)
+  (dead-end arteri = kemungkinan error nyata; ujung gang/cul-de-sac perumahan
+  hanya dihitung di detail log). Deteksi tetap persis SPEC 3.1; temuan
+  dangling kini dianotasi kelas `highway` edge. jumlah_temuan di log =
+  temuan TERSIMPAN. Workflow road-qa memakai kedua flag. 114 test pass
+  (2 baru: anotasi highway + split_dangling).
+- **Utang #2 BERES**: cron road-qa Sen/Rab/Jum -> **Sen/Kam** (+ Minggu via
+  workflow_run) ~ 735 mnt/bln; total semua workflow ~1.500 dari kuota 2.000.
+- **Cleanup DB (keputusan user)**: 183.568 baris batch full-area 19 Jul
+  (artefak) DIHAPUS dari road_errors — verifikasi jumlah persis sebelum
+  DELETE; sisa 423 baris sample Menteng valid. Jejak insiden tetap di
+  pipeline_logs id 36 (JANGAN bingung: log id 36 bilang 183568 tapi barisnya
+  memang sudah dihapus).
+- **DEPLOY SELESAI (step 19)**:
+  - Backend: Render Blueprint (`render.yaml` + `requirements-api.txt`
+    minimal, terverifikasi cukup di venv bersih) ->
+    https://geologix-api.onrender.com — /health + endpoint data OK dari luar.
+    Free tier: sleep setelah idle, cold start ±1 mnt (catat di README).
+  - Frontend: Vercel, Root Directory `frontend`, env VITE_API_BASE ->
+    https://geologix.vercel.app (alias produksi; Deployment Protection
+    dimatikan supaya publik). Insiden deploy: error "No FastAPI entrypoint"
+    = Vercel scan root repo; fix = Root Directory `frontend` (+ Framework
+    Vite), BUKAN pyproject tool.vercel.
+  - `API_CORS_ORIGINS` di Render masih `*` — opsional persempit ke domain
+    Vercel.
+- Log `openmeteo_ingestion failed` (id 31) yang terlihat di dashboard =
+  jejak insiden ReadTimeout KEMARIN yang sudah difix (retry) — bukan masalah
+  baru; sudah dijelaskan ke user.
+
+## Keputusan penting (sesi lanjutan Fase 5)
+- Kebijakan dangling `major` = KEPUTUSAN DATA SEMANTIK per 2026-07-20:
+  road_errors sebelum vs sesudah tanggal ini TIDAK sebanding (relevan utk
+  Fase ML nanti — mulai hitung akumulasi log konsisten dari sini).
+- Fase ML DITOLAK dulu (user tanya 2026-07-20): Fase 6 belum + log historis
+  baru ±2 hari; butuh beberapa minggu akumulasi cron (CLAUDE.md #2, SPEC 5.2
+  baris 12). Dokumentasikan di README sebagai roadmap.
 
 ## Selesai (sesi Fase 5, 2026-07-20 — api/main.py + frontend deck.gl)
 - `src/api/main.py` (SPEC 5.2 urutan 9): FastAPI READ-ONLY, 6 endpoint:
@@ -47,27 +107,20 @@
 - Deploy (step 19) DITUNDA: layer road-error belum layak dipublikasikan
   sebelum utang keputusan #1 (filter dangling) selesai.
 
-## Langkah selanjutnya (sesi baru — user memilih lanjut FASE 6 dokumentasi)
-0. **Fase 6 (step 20-21): README metodologi** — tulis dari hasil NYATA yang
-   sudah tercatat di file ini + validation notes di tests/ (justifikasi
-   metode, keterbatasan, hasil validasi manual, insiden yang ditangani).
-   Narasi 15 detik + demo flow interview. JANGAN klaim yang belum
-   diverifikasi (mis. deploy belum ada; dangling full-area belum difilter).
-1. Pantau cron s/d 22 Juli (SPEC step 16) — run merah = prioritas interupsi.
-2. 2 UTANG KEPUTUSAN (bawah) — WAJIB sebelum P4 rerun & sebelum deploy;
-   README harus menyebutnya sebagai known limitation, itu justru nilai plus.
-3. Setelah utang beres: rerun P4, lalu deploy Vercel (frontend,
-   set VITE_API_BASE) + Render/Railway (backend) — step 19 (sisa Fase 5).
+## Langkah selanjutnya (sesi baru — FASE 6 dokumentasi)
+0. **Cek 3 hal "MENGGANTUNG SAAT /clear" di atas dulu** (run CI #1 filter
+   baru, rerun P4, bukti cron pertama).
+1. **Fase 6 (step 20-21): README metodologi** — tulis dari hasil NYATA yang
+   tercatat di file ini + validation notes di tests/ (justifikasi metode,
+   keterbatasan, hasil validasi manual, insiden + penanganannya, URL live).
+   Known limitation yang jujur = nilai plus. Narasi 15 detik + demo flow.
+2. Pantau cron s/d 22 Juli (SPEC step 16) — run merah = prioritas interupsi.
+3. Opsional: persempit API_CORS_ORIGINS di Render ke domain Vercel; setelah
+   frontend stabil pertimbangkan naikkan layer road error jadi default ON
+   (datanya kini bersih pasca-filter).
 
-## 2 UTANG KEPUTUSAN sebelum data full-area dipercaya (MASIH AKTIF)
-1. **182.848 dangling P1 full-area BUKAN semua error nyata** — campuran
-   artefak clip tepi Jabodetabek (runner CI tak memberi boundary polygon)
-   dan cul-de-sac asli. ~730k baris/minggu ke `road_errors` TIDAK
-   berkelanjutan. JANGAN rerun P4 sebelum beres; layer road-error di
-   dashboard sudah default OFF + peringatan.
-2. Kuota Actions private ketat (~1.700-1.800 dari 2.000 mnt/bulan) —
-   kalau road-qa tetap 57 mnt, turunkan ke 2x/minggu atau percepat
-   (filter dangling juga memangkas waktu tulis DB).
+## ~~2 UTANG KEPUTUSAN~~ — SELESAI 2026-07-20 (lihat "Selesai" sesi lanjutan
+## Fase 5 di atas: filter dangling major + boundary; jadwal Sen/Kam)
 
 ---
 
