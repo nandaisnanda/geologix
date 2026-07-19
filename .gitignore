@@ -1,0 +1,19 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+
+# Data mentah (besar, bukan untuk git — lihat SPEC.md Bagian 5.1)
+data/raw/*
+!data/raw/.gitkeep
+
+# Frontend (dibuat Fase 5)
+frontend/node_modules/
+frontend/dist/
+
+.pytest_cache/
+*.egg-info/
+
+# Setting lokal Claude Code (machine-specific)
+.claude/settings.local.json

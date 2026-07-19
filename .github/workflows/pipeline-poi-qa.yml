@@ -1,0 +1,53 @@
+# pipeline-poi-qa — Pipeline 2 POI Validation harian (SPEC.md Bagian 2 Fase 4
+# step 15: cron harian untuk P2).
+#
+# Sumber data = java-latest-free.shp.zip (2.2GB, layer POI + roads) — jalur
+# shapefile TERPISAH dari .pbf Pipeline 1 (SPEC 5.2c, jangan dicampur).
+# File zip di-cache dengan key per-minggu ISO (osm-poi-shpzip-<tahun-Wminggu>):
+# dalam seminggu semua run pakai cache (hit), awal minggu key baru -> cache
+# miss -> ensure_shp_zip() download versi Geofabrik terbaru. SENGAJA tanpa
+# restore-keys: fallback ke zip minggu lalu justru membatalkan refresh
+# (ensure_shp_zip melihat file ada dan tidak mengunduh ulang).
+name: pipeline-poi-qa
+
+on:
+  schedule:
+    - cron: "45 1 * * *" # harian 01:45 UTC (08:45 WIB)
+  workflow_dispatch: {}
+
+concurrency:
+  group: pipeline-poi-qa
+  cancel-in-progress: false
+
+jobs:
+  poi-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120 # download 2.2GB (awal minggu) + ingest 46.980 POI + join jarak
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependensi Python
+        run: pip install -r requirements.txt
+
+      - name: Hitung minggu ISO untuk key cache
+        id: week
+        run: echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache java-latest-free.shp.zip (refresh tiap minggu)
+        uses: actions/cache@v4
+        with:
+          path: data/raw/java-latest-free.shp.zip
+          key: osm-poi-shpzip-${{ steps.week.outputs.week }}
+
+      - name: Ingest POI (download zip kalau belum ada + clip Jabodetabek)
+        run: python -m src.data_ingestion.fetch_osm_poi
+
+      - name: Jalankan Pipeline 2 POI Validation
+        run: python -m src.pipeline_2_poi_qa

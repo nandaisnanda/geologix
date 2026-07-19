@@ -1,0 +1,88 @@
+# pipeline-road-qa — Pipeline 1 Road Network QA harian (SPEC.md Bagian 2
+# Fase 4 step 15: cron harian untuk P1).
+#
+# Dependency antar-workflow (SPEC 5.2b): pada hari refresh OSM (Minggu),
+# pipeline ini TIDAK jalan dari cron melainkan dipicu workflow_run setelah
+# pipeline-osm-refresh SELESAI SUKSES — jadwal cron sengaja "1-6" (Sen-Sab)
+# supaya tidak dobel di hari Minggu.
+#
+# Jalur produksi dari .pbf (docstring graph_builder.py, WAJIB 2 tahap):
+#   osmium tags-filter <pbf> w/highway=... -o roads.osm.pbf
+#   osmium cat roads.osm.pbf -o roads.osm
+# KEPUTUSAN Fase 4 (deselaraskan di sini, sesuai catatan graph_builder.py):
+# filter highway = subset drivable yang SAMA dengan network_type="drive"
+# OSMnx yang dipakai saat validasi manual sample Menteng — supaya hasil CI
+# merepresentasikan hasil yang sudah divalidasi. Perluasan ke gang
+# motorcycle-only (motorcar=no) masih keputusan terbuka (PROGRESS.md).
+name: pipeline-road-qa
+
+on:
+  schedule:
+    - cron: "30 2 * * 1-6" # harian Sen-Sab 02:30 UTC (09:30 WIB)
+  workflow_run:
+    workflows: [pipeline-osm-refresh]
+    types: [completed] # Minggu: jalan setelah refresh selesai
+  workflow_dispatch: {}
+
+concurrency:
+  group: pipeline-road-qa
+  cancel-in-progress: false
+
+jobs:
+  road-qa:
+    # Dari workflow_run: hanya kalau refresh sukses (SPEC 5.2b — jangan jalan
+    # dengan data OSM yang gagal ter-update).
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install osmium-tool + dependensi Python
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends osmium-tool
+          pip install -r requirements.txt
+
+      - name: Restore cache OSM hasil pipeline-osm-refresh
+        id: osm-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            data/raw/jabodetabek.osm.pbf
+            data/raw/osm_replication_state.txt
+          key: osm-jabodetabek-v1-${{ github.run_id }}
+          restore-keys: |
+            osm-jabodetabek-v1-
+
+      # Fallback kalau cache kosong/terevict (SPEC 5.2b: sistem tidak boleh
+      # stuck): full download + clip lewat jalur fetch_osm yang sama.
+      - name: Fallback fetch_osm saat cache miss
+        if: steps.osm-cache.outputs.cache-matched-key == ''
+        run: python -m src.data_ingestion.fetch_osm
+
+      - name: Simpan cache hasil fallback
+        if: steps.osm-cache.outputs.cache-matched-key == ''
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            data/raw/jabodetabek.osm.pbf
+            data/raw/osm_replication_state.txt
+          key: osm-jabodetabek-v1-${{ github.run_id }}
+
+      - name: Konversi .pbf -> OSM XML jalan drivable (2 tahap wajib)
+        run: |
+          osmium tags-filter data/raw/jabodetabek.osm.pbf \
+            w/highway=motorway,motorway_link,trunk,trunk_link,primary,primary_link,secondary,secondary_link,tertiary,tertiary_link,unclassified,residential,living_street,service,road \
+            -o data/raw/roads.osm.pbf --overwrite
+          osmium cat data/raw/roads.osm.pbf -o data/raw/roads.osm --overwrite
+
+      - name: Jalankan Pipeline 1 Road QA
+        run: python -m src.pipeline_1_road_qa --xml data/raw/roads.osm

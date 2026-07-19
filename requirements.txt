@@ -1,0 +1,20 @@
+# Fase 0 — fondasi (SPEC.md Bagian 5.2 urutan 1)
+SQLAlchemy>=2.0
+GeoAlchemy2>=0.14
+psycopg2-binary>=2.9
+python-dotenv>=1.0
+pytest>=8.0
+
+# Fase 1 — Pipeline 1 Road QA (SPEC.md Bagian 5.2 urutan 2-3)
+geopandas>=1.0
+osmnx>=2.0
+networkx>=3.0
+shapely>=2.0
+
+# Fase 3 — Pipeline 3 Weather-Risk (SPEC.md Bagian 5.2 urutan 5-6)
+h3>=4.0
+requests>=2.31
+rasterio>=1.4  # baca GeoTIFF CHIRPS (lokal maupun remote /vsicurl/)
+
+# Ditambahkan bertahap sesuai fase (Bagian 7 TECH STACK):
+# fastapi, uvicorn -> Fase 5

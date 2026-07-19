@@ -1,0 +1,68 @@
+# pipeline-osm-refresh — refresh data OSM .pbf mingguan (SPEC.md Bagian 5.2b).
+#
+# Menjalankan src/data_ingestion/fetch_osm.py di Ubuntu runner (osmium-tool
+# tersedia via apt — tidak ada di Windows dev, lihat PROGRESS.md Fase 1):
+#   cache miss -> full download java-latest.osm.pbf + osmium extract --polygon
+#   cache hit  -> download diff .osc.gz + osmium apply-changes + re-extract
+#   fallback   -> incremental gagal apa pun sebabnya -> full download
+# Mode run tercatat di tabel pipeline_logs (full_download | incremental_update
+# | full_download_fallback).
+#
+# CATATAN implementasi cache (SPEC 5.2b minta "overwrite key yang sama"):
+# entri cache GitHub Actions bersifat IMMUTABLE — key yang sudah ada tidak
+# bisa ditimpa. Semantik "overwrite" diimplementasikan dengan key unik per-run
+# (osm-jabodetabek-v1-<run_id>) + restore-keys prefix "osm-jabodetabek-v1-"
+# (sesuai instruksi restore-keys di SPEC 5.2b): restore selalu mengambil entri
+# TERBARU dengan prefix itu, lalu run ini menyimpan versi baru di key baru.
+name: pipeline-osm-refresh
+
+on:
+  schedule:
+    - cron: "0 0 * * 0" # mingguan, Minggu 00:00 UTC — persis SPEC 5.2b
+  workflow_dispatch: {} # uji manual (checklist SPEC 5.4: 3x run sebelum cron)
+
+concurrency:
+  group: pipeline-osm-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120 # full download 851MB + extract polygon
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }} # Supabase Session Pooler (IPv4)
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install osmium-tool + dependensi Python
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends osmium-tool
+          pip install -r requirements.txt
+
+      - name: Restore cache OSM (key osm-jabodetabek-v1, SPEC 5.2b)
+        id: osm-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            data/raw/jabodetabek.osm.pbf
+            data/raw/osm_replication_state.txt
+          key: osm-jabodetabek-v1-${{ github.run_id }}
+          restore-keys: |
+            osm-jabodetabek-v1-
+
+      - name: Jalankan fetch_osm (incremental / full + fallback wajib)
+        run: python -m src.data_ingestion.fetch_osm
+
+      - name: Simpan versi terbaru ke cache
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            data/raw/jabodetabek.osm.pbf
+            data/raw/osm_replication_state.txt
+          key: osm-jabodetabek-v1-${{ github.run_id }}

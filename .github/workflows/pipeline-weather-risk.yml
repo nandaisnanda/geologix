@@ -1,0 +1,62 @@
+# pipeline-weather-risk — Pipeline 3 Weather-Risk Overlay (SPEC.md Bagian 2
+# Fase 4 step 15).
+#
+# KEPUTUSAN Fase 4 — cron PER 3 JAM, bukan per jam seperti teks SPEC:
+# free tier Open-Meteo = 10.000 unit/hari dan tiap LOKASI dihitung 1 unit
+# (terverifikasi empiris — insiden HTTP 429 di log id 12, PROGRESS.md Fase 3).
+# Per jam x 1.079 sel H3 = ~26k unit/hari (3x budget); per 3 jam = 8 run x
+# 1.079 = ~8,6k unit/hari, muat di budget TANPA mengorbankan cakupan grid.
+# Alternatif subset grid ditolak: peta risiko sebagian area kehilangan makna
+# operasionalnya. Riwayat tetap menumpuk di weather_risk_grid per computed_at.
+#
+# Input statis (grid H3 + baseline CHIRPS 2020-2024) di-cache dengan key
+# tetap "weather-static-v1" — hanya dibangun ulang saat cache miss. Naikkan
+# ke -v2 kalau H3_RESOLUTION atau jendela tahun CHIRPS berubah.
+name: pipeline-weather-risk
+
+on:
+  schedule:
+    - cron: "7 */3 * * *" # per 3 jam; menit 07 menghindari antrean puncak GH
+  workflow_dispatch: {}
+
+concurrency:
+  group: pipeline-weather-risk
+  cancel-in-progress: false
+
+jobs:
+  weather-risk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30 # fetch Open-Meteo ~2 menit (pause antar-batch) + hitung
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependensi Python
+        run: pip install -r requirements.txt
+
+      - name: Cache input statis (grid H3 + baseline CHIRPS)
+        id: static-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            data/raw/h3_grid_jabodetabek.gpkg
+            data/raw/chirps_baseline.csv
+          key: weather-static-v1
+
+      - name: Bangun grid H3 + baseline CHIRPS (hanya saat cache miss)
+        if: steps.static-cache.outputs.cache-hit != 'true'
+        run: |
+          python -m src.pipeline_3_weather_risk.h3_grid
+          python -m src.data_ingestion.fetch_chirps
+
+      - name: Fetch curah hujan real-time Open-Meteo
+        run: python -m src.data_ingestion.fetch_openmeteo
+
+      - name: Jalankan Pipeline 3 Weather-Risk (Gi* + Min-Max + AHP + WLC)
+        run: python -m src.pipeline_3_weather_risk
