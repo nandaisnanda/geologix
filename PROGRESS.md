@@ -1,8 +1,29 @@
 # PROGRESS.md — GeoLogix AI
 
-## Status: Fase 4 — Pipeline 4 Aggregator SELESAI & jalan nyata (checklist
-## 5.4 P4 terpenuhi); repo di GitHub (nandaisnanda/geologix, PRIVATE);
-## sisa Fase 4: trigger manual 4 workflow CI + pantau 3 hari (SPEC step 16)
+## Status: Fase 4 — Pipeline 4 SELESAI & jalan nyata (checklist 5.4 P4
+## terpenuhi); TAPI CI GitHub Actions BELUM PERNAH JALAN — semua run
+## `startup_failure` (BLOCKER billing akun, lihat bawah). Fase 5 JANGAN
+## dimulai sebelum SPEC step 16 (uji otomatis 3 hari) terpenuhi.
+
+## BLOCKER CI (2026-07-19, WAJIB dibereskan user lewat browser)
+- Fakta terverifikasi: API GitHub `total_count=0` run sebelum trigger manual;
+  trigger manual 4 workflow + workflow `smoke` minimal (echo saja) SEMUA
+  `startup_failure` dalam 0-1 detik TANPA job dimulai.
+- Diagnosis: BUKAN file YAML (smoke polos ikut gagal), BUKAN Actions
+  disabled (`actions/permissions` -> enabled). Pola ini = masalah billing
+  akun untuk repo PRIVATE (menit included tak tersedia / spending limit /
+  pembayaran). Tidak bisa diperbaiki via CLI/token ini (billing API 404,
+  scope kurang).
+- Tindakan user: buka github.com/settings/billing (akun nandaisnanda) →
+  cek banner error pembayaran / spending limit Actions; pastikan email
+  akun terverifikasi. Lalu uji: `gh workflow run smoke` → kalau sukses,
+  hapus `smoke.yml`, jalankan 4 workflow (osm-refresh dulu), 3x tiap
+  workflow, baru pantau 3 hari (SPEC step 16).
+- Run `startup_failure` yang menumpuk (termasuk cascade road-qa via
+  workflow_run) dibiarkan — jejak insiden, konsisten kebiasaan proyek.
+- PERINGATAN INTEGRITAS: klaim "sudah jalan 3x tanpa error" sempat masuk
+  (2026-07-19) dan TERBANTAH oleh data. Jangan catat klaim CI ke file ini
+  tanpa cek `gh run list` + `pipeline_logs`.
 
 ## Selesai (sesi Fase 4 lanjutan, 2026-07-19 — P4 jalan nyata + repo GitHub)
 - **Repo GitHub: `nandaisnanda/geologix` (PRIVATE)** — dibuat via gh CLI,
@@ -55,10 +76,13 @@
 - Validasi severity/ease dilakukan SETELAH dedupe (hanya baris terpakai).
 
 ## Langkah selanjutnya (sesi baru)
-1. Trigger manual 4 workflow CI (`gh workflow run pipeline-osm-refresh` dulu
-   → memicu road-qa; lalu weather-risk & poi-qa), cek `pipeline_logs`,
-   pantau 3 hari (SPEC step 16). Keputusan visibility repo (private vs
-   public) menentukan kuota menit Actions.
+0. **BERESKAN BLOCKER BILLING dulu** (lihat bagian BLOCKER CI di atas) —
+   tanpa itu tidak ada satu pun workflow yang bisa jalan.
+1. Setelah smoke sukses: hapus `smoke.yml`, trigger 4 workflow
+   (`pipeline-osm-refresh` dulu → memicu road-qa; lalu weather-risk &
+   poi-qa), 3x tiap workflow, cek `pipeline_logs`, pantau 3 hari
+   (SPEC step 16). Jadwal sudah versi hemat kuota private
+   (±1.600 menit/bulan dari 2.000).
 2. Setelah P1/P2 jalan full-area di CI: jalankan ulang P4 (temuan sekarang
    masih sample Menteng — lihat validation notes P4 poin 3.2).
 3. 3 keputusan terbuka lama: boundary full-area P1, gang motorcycle-only
