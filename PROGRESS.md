@@ -1,27 +1,58 @@
 # PROGRESS.md — GeoLogix AI
 
-## Status: FASE 5 SELESAI 100% + 2 UTANG KEPUTUSAN BERES (2026-07-20).
-## LIVE: dashboard https://geologix.vercel.app + API
-## https://geologix-api.onrender.com (DB tetap Supabase).
+## Status: FASE 6 SELESAI (2026-07-20) — README.md + PITCH.md ditulis dari
+## hasil nyata. Fase 0-6 KOMPLET. LIVE: https://geologix.vercel.app + API
+## https://geologix-api.onrender.com (DB Supabase).
 ## Observasi otomatis 3 hari (SPEC step 16) berjalan s/d 22 Juli.
-## Selanjutnya: Fase 6 (README + narasi) — TAPI cek dulu 3 hal "MENGGANTUNG
-## SAAT /clear" di bawah. ml/ TETAP TERLARANG (Fase 6 belum + log baru 2 hari).
+## ml/ TETAP TERLARANG: log konsisten (pasca-filter dangling) baru mulai
+## 2026-07-20 — butuh BEBERAPA MINGGU-BULAN akumulasi cron (SPEC Bagian 4:
+## ideal 3-6 bulan). Keputusan gate ML dicek ulang: 36 log, span 18-19 Jul
+## saja (<24 jam data) saat sesi ini — JAUH dari cukup.
 
 ## MENGGANTUNG SAAT /clear (cek di awal sesi baru!)
-1. **Run CI road-qa 29697090519 masih in_progress saat sesi ditutup** — run
-   PERTAMA dengan filter baru (--boundary-jabodetabek --dangling-persist
-   major). Cek: `gh run view 29697090519` + log pipeline_logs terbaru.
-   Ekspektasi: dangling terdeteksi ~180rb tapi dangling_saved KECIL (hanya
-   motorway..tertiary), disconnected/oneway ~300/400. Kalau gagal/timeout
-   (budget 90 mnt; boundary contains 180rb titik menambah waktu) — prioritas.
-2. **P4 BELUM di-rerun** — road_errors sudah bersih (tinggal 423 baris sample
-   Menteng + hasil run CI baru kalau sukses). Jalankan
-   `python -m src.pipeline_4_aggregator` SETELAH run #1 terverifikasi;
-   aggregated_findings lama (519 baris, sumber sample Menteng) masih di DB.
-3. **Cron pertama belum terbukti** — weather-risk jadwal 01:07 WIB 20 Jul
-   (18:07Z 19 Jul) belum muncul saat sesi ditutup (delay GitHub biasa).
-   Cek `gh run list` — kalau TIDAK ada run `[schedule]` sama sekali s/d
-   pagi 20 Jul, ada masalah cron yang harus diinvestigasi.
+1. **Cron `[schedule]` MASIH BELUM TERBUKTI** — s/d 2026-07-19 18:22Z
+   (01:22 WIB 20 Jul) belum ada satu pun run `[schedule]` di `gh run list`
+   (weather-risk jadwal 18:07Z telat >15 mnt; delay GitHub biasa, semua
+   workflow state=active). Jadwal berikut: weather-risk 00:07Z (07:07 WIB).
+   Kalau TIDAK ada run `[schedule]` sama sekali s/d pagi 20 Jul WIB —
+   investigasi (catatan: cron di repo private butuh aktivitas repo; cek juga
+   tab Actions di web).
+2. Opsional (keputusan user): naikkan layer road-error dashboard jadi
+   default ON — data road_errors kini bersih (736 baris full-area + 423
+   sample Menteng); dan persempit API_CORS_ORIGINS di Render.
+
+## Selesai (sesi Fase 6, 2026-07-20)
+- **Utang #1 & #2 sesi lalu BERES:**
+  - Run CI 29697090519 (pertama dgn --boundary-jabodetabek
+    --dangling-persist major) SUKSES 46m14s. Log id 37: dangling terdeteksi
+    179.582 → **dangling_saved=16** (skipped 179.566), disconnected 315,
+    oneway 405 → 736 temuan tersimpan. Persis ekspektasi; filter bekerja.
+  - **P4 di-rerun atas data full-area PERTAMA**: 2.945 temuan
+    terprioritaskan (dedupe road 423→141 Menteng + 736 CI; POI 2.072+32),
+    bobot [4/7,2/7,1/7] CR=0, prio 0.1642-0.9999, top poi_anomalies:1927,
+    dropped_no_population=0.
+- **README.md (step 20) DITULIS** dari PROGRESS + 4 validation notes:
+  justifikasi metode per pipeline, bukti otomasi, hasil validasi manual,
+  7 known limitations, tabel insiden nyata, roadmap ML (kenapa belum),
+  cara reproduce, atribusi data. Angka sudah memakai hasil run terbaru
+  (dangling 179.582→16, P4 full-area 2.945).
+- **PITCH.md (step 21) DITULIS**: narasi 15 detik + versi 1 kalimat,
+  demo flow ±3 mnt (termasuk trik pre-warm cold start Render), Q&A
+  antisipasi interview, tabel angka hafalan.
+- **Gate ML diverifikasi ulang dgn query nyata** (permintaan user):
+  pipeline_logs 36 baris, first 2026-07-18 20:26Z last 2026-07-19 15:05Z
+  (sebelum run 37) — ML DITOLAK lagi, akumulasi konsisten baru mulai
+  20 Jul. Jawaban terdokumentasi di README bagian Roadmap ML.
+
+## Keputusan penting (sesi Fase 6)
+- README menyebut angka temuan = TERSIMPAN pasca-kebijakan `major`
+  (16 dangling), dengan angka deteksi mentah (179.582) dipakai sebagai
+  narasi "temuan penting run full-area" — jujur dua-duanya.
+- PITCH.md = dokumen internal persiapan interview, bukan dokumentasi teknis
+  (dinyatakan di header file).
+- aggregated_findings kini berisi batch lama (519 sample Menteng) + batch
+  full-area (2.945). API /aggregated-findings dedupe per (source_pipeline,
+  source_id) keep terbaru — batch lama tidak mengganggu tampilan.
 
 ## Selesai (sesi lanjutan Fase 5, 2026-07-20 — 2 utang + deploy + live)
 - **Utang #1 BERES** (commit 74dc07a): runner P1 kini punya
