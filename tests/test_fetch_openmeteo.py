@@ -88,6 +88,35 @@ def test_fetch_rainfall_retry_429_lalu_sukses(monkeypatch):
     assert df.loc[0, "rainfall_mm"] == 0.3
 
 
+def test_fetch_rainfall_retry_timeout_lalu_sukses(monkeypatch):
+    """ReadTimeout transient (insiden CI log id 25) -> backoff lalu ulang."""
+    attempts = []
+
+    def fake_get(url, params=None, timeout=None):
+        attempts.append(params)
+        if len(attempts) <= 2:
+            raise requests.ReadTimeout("Read timed out.")
+        return FakeResponse(
+            {"current": {"precipitation": 0.7, "time": "2026-07-19T07:00"}}
+        )
+
+    monkeypatch.setattr(fetch_openmeteo.requests, "get", fake_get)
+
+    df = fetch_openmeteo.fetch_rainfall([-6.2], [106.8])
+
+    assert len(attempts) == 3
+    assert df.loc[0, "rainfall_mm"] == 0.7
+
+
+def test_fetch_rainfall_timeout_terus_menerus_raise(monkeypatch):
+    def fake_get(url, params=None, timeout=None):
+        raise requests.ConnectTimeout("connect timeout")
+
+    monkeypatch.setattr(fetch_openmeteo.requests, "get", fake_get)
+    with pytest.raises(requests.Timeout):
+        fetch_openmeteo.fetch_rainfall([-6.2], [106.8])
+
+
 def test_fetch_rainfall_429_terus_menerus_raise(monkeypatch):
     monkeypatch.setattr(
         fetch_openmeteo.requests, "get",

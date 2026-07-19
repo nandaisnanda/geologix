@@ -46,7 +46,7 @@ BATCH_SIZE = 100
 # antar-batch menjaga run tetap di bawah limit (terverifikasi: burst tanpa
 # jeda kena HTTP 429).
 BATCH_PAUSE_S = 10
-RETRY_MAX = 4  # retry khusus HTTP 429, backoff RETRY_BACKOFF_S
+RETRY_MAX = 4  # retry HTTP 429 + timeout/gagal koneksi, backoff RETRY_BACKOFF_S
 RETRY_BACKOFF_S = 30
 REQUEST_TIMEOUT_S = 60
 
@@ -64,11 +64,22 @@ def _parse_locations(payload) -> list[dict]:
 
 
 def _get_batch(params: dict) -> requests.Response:
-    """GET dengan retry khusus HTTP 429 (limit per menit ~600 unit lokasi)."""
+    """GET dengan retry untuk dua mode gagal transient:
+    - HTTP 429 (limit per menit ~600 unit lokasi, terverifikasi empiris);
+    - timeout/gagal koneksi (Open-Meteo kadang lambat merespons IP shared
+      GitHub Actions — insiden ReadTimeout run CI pertama, log id 25).
+    Error lain (4xx/5xx non-429) tetap langsung raise.
+    """
     for attempt in range(RETRY_MAX + 1):
-        resp = requests.get(
-            config.OPEN_METEO_BASE_URL, params=params, timeout=REQUEST_TIMEOUT_S
-        )
+        try:
+            resp = requests.get(
+                config.OPEN_METEO_BASE_URL, params=params, timeout=REQUEST_TIMEOUT_S
+            )
+        except (requests.Timeout, requests.ConnectionError):
+            if attempt < RETRY_MAX:
+                time.sleep(RETRY_BACKOFF_S)
+                continue
+            raise
         if resp.status_code == 429 and attempt < RETRY_MAX:
             time.sleep(RETRY_BACKOFF_S)
             continue
