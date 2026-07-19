@@ -1,29 +1,57 @@
 # PROGRESS.md — GeoLogix AI
 
-## Status: Fase 4 — Pipeline 4 SELESAI & jalan nyata (checklist 5.4 P4
-## terpenuhi); TAPI CI GitHub Actions BELUM PERNAH JALAN — semua run
-## `startup_failure` (BLOCKER billing akun, lihat bawah). Fase 5 JANGAN
-## dimulai sebelum SPEC step 16 (uji otomatis 3 hari) terpenuhi.
+## Status: Fase 4 — 4/4 WORKFLOW CI TERBUKTI JALAN (run manual pertama
+## sukses semua, 2026-07-19; log CI nyata di pipeline_logs id 23-36).
+## Observasi otomatis 3 hari (SPEC step 16) BERJALAN s/d 22 Juli.
+## Fase 5 BOLEH dimulai paralel — dengan 2 utang keputusan (lihat bawah).
 
-## BLOCKER CI (2026-07-19, WAJIB dibereskan user lewat browser)
-- Fakta terverifikasi: API GitHub `total_count=0` run sebelum trigger manual;
-  trigger manual 4 workflow + workflow `smoke` minimal (echo saja) SEMUA
-  `startup_failure` dalam 0-1 detik TANPA job dimulai.
-- Diagnosis: BUKAN file YAML (smoke polos ikut gagal), BUKAN Actions
-  disabled (`actions/permissions` -> enabled). Pola ini = masalah billing
-  akun untuk repo PRIVATE (menit included tak tersedia / spending limit /
-  pembayaran). Tidak bisa diperbaiki via CLI/token ini (billing API 404,
-  scope kurang).
-- Tindakan user: buka github.com/settings/billing (akun nandaisnanda) →
-  cek banner error pembayaran / spending limit Actions; pastikan email
-  akun terverifikasi. Lalu uji: `gh workflow run smoke` → kalau sukses,
-  hapus `smoke.yml`, jalankan 4 workflow (osm-refresh dulu), 3x tiap
-  workflow, baru pantau 3 hari (SPEC step 16).
-- Run `startup_failure` yang menumpuk (termasuk cascade road-qa via
-  workflow_run) dibiarkan — jejak insiden, konsisten kebiasaan proyek.
-- PERINGATAN INTEGRITAS: klaim "sudah jalan 3x tanpa error" sempat masuk
-  (2026-07-19) dan TERBANTAH oleh data. Jangan catat klaim CI ke file ini
-  tanpa cek `gh run list` + `pipeline_logs`.
+## Bukti run CI pertama (2026-07-19, semua via workflow_dispatch)
+- `pipeline-osm-refresh` SUKSES 2m45s: mode `full_download` (log id 26),
+  cache `osm-jabodetabek-v1-*` terisi (130MB clipped .pbf).
+- `pipeline-poi-qa` SUKSES 3m25s — **run full-area P2 PERTAMA**: 46.979 POI,
+  745.268 ruas jalan, **2.072 outlier** (Q1=8,71m Q3=22,83m upper=44,0m —
+  konsisten statistik sample Menteng; rasio 4,4% vs 3,8%) (log id 27-28).
+- `pipeline-weather-risk` SUKSES 8m58s (run ke-3): 1.079 sel, 348 hotspot,
+  risk_max=0,3333 — tepat bobot hist 1/3 karena rain=0,00 semua sel (jam
+  kering kemarau; kriteria realtime ternormalisasi 0) (log id 32-35).
+- `pipeline-road-qa` SUKSES 57 menit (run ke-3) — **run full-area P1
+  PERTAMA**: 703.926 node, 1.708.734 edge; temuan 183.568 =
+  **182.848 dangling (26% node!)** + 315 disconnected + 405 oneway (log 36).
+  Dependency `workflow_run` refresh->road-qa TERBUKTI bekerja (terpicu
+  otomatis 13:38 setelah refresh sukses).
+
+## Insiden CI run pertama (semua sudah ditangani, jejak dibiarkan)
+1. **startup_failure semua run (0-1 dtk)** = billing akun: GitHub Pro $0
+   (diskon education) tapi otorisasi kartu GAGAL -> GitHub blokir seluruh
+   Actions. Fix: user update kartu (hold ~Rp18rb = otorisasi, bukan charge).
+   Pelajaran: startup_failure seragam + instan = cek billing, bukan YAML.
+2. **ReadTimeout Open-Meteo** dari runner (IP Azure shared; log id 25, 31).
+   Fix: `fetch_openmeteo._get_batch` retry timeout/koneksi (commit d3...,
+   102 test pass). Catatan: `gh run rerun` memakai SHA lama — fix baru
+   terbukti lewat run BARU.
+3. **road-qa OOM**: runner shutdown 12,5 mnt tanpa output (RAM 16GB habis
+   saat graph_from_xml Jabodetabek). Fix percobaan 1: swap fixed 16GB ->
+   GAGAL "No space left" (disk /mnt tak selega dokumentasi). Fix final:
+   **swap dinamis** (mount terlega, margin 6GB, cap 16GB) -> sukses 57 mnt
+   (lambat karena swap-thrash; budget timeout 90 mnt cukup).
+- PERINGATAN INTEGRITAS (tetap relevan): klaim "CI sudah jalan" tanpa cek
+  `gh run list` + `pipeline_logs` pernah terbantah data. Selalu verifikasi.
+
+## 2 UTANG KEPUTUSAN sebelum data full-area dipercaya (prioritas sesi dekat)
+1. **182.848 dangling P1 full-area BUKAN semua error nyata** — campuran
+   (a) artefak clip tepi Jabodetabek: runner CI tidak memberi boundary
+   polygon ke `detect_dangling_nodes` (flag `--kecamatan` tak terpakai di
+   full-area), dan (b) cul-de-sac perumahan asli. Konsekuensi DB: ~183k
+   baris/run x 4 run/minggu = ~730k baris/minggu ke `road_errors` — TIDAK
+   berkelanjutan. Keputusan: tambah opsi boundary Jabodetabek di runner P1
+   + pertimbangkan filter cul-de-sac/severity sebelum simpan. SEBELUM itu
+   beres, **JANGAN jalankan ulang P4** (akan mengagregasi 183k temuan
+   termasuk artefak).
+2. Kuota Actions private KETAT: estimasi terpakai ~1.700-1.800 mnt/bulan
+   (road-qa 57 mnt x 4/minggu ~ 980; weather ~720; sisanya ~100) dari
+   2.000. Kalau road-qa tetap selambat ini, turunkan ke 2x/minggu atau
+   percepat (keputusan bareng poin 1 — filter dangling juga memangkas
+   waktu tulis DB).
 
 ## Selesai (sesi Fase 4 lanjutan, 2026-07-19 — P4 jalan nyata + repo GitHub)
 - **Repo GitHub: `nandaisnanda/geologix` (PRIVATE)** — dibuat via gh CLI,
@@ -76,13 +104,15 @@
 - Validasi severity/ease dilakukan SETELAH dedupe (hanya baris terpakai).
 
 ## Langkah selanjutnya (sesi baru)
-0. **BERESKAN BLOCKER BILLING dulu** (lihat bagian BLOCKER CI di atas) —
-   tanpa itu tidak ada satu pun workflow yang bisa jalan.
-1. Setelah smoke sukses: hapus `smoke.yml`, trigger 4 workflow
-   (`pipeline-osm-refresh` dulu → memicu road-qa; lalu weather-risk &
-   poi-qa), 3x tiap workflow, cek `pipeline_logs`, pantau 3 hari
-   (SPEC step 16). Jadwal sudah versi hemat kuota private
-   (±1.600 menit/bulan dari 2.000).
+0. **Fase 5 (backend FastAPI `api/main.py` dulu, baru frontend)** — boleh
+   mulai sekarang, paralel dengan observasi 3 hari. Catatan arah client:
+   user mempertimbangkan APLIKASI (bukan web dashboard) — backend FastAPI
+   netral terhadap itu; keputusan bentuk client belum final.
+1. Pantau cron s/d 22 Juli (SPEC step 16): run merah di GitHub = prioritas
+   interupsi. Cek `gh run list` + `pipeline_logs`.
+2. Kerjakan 2 UTANG KEPUTUSAN di atas (dangling full-area + kuota) —
+   idealnya sesi terpisah sebelum Fase 6; WAJIB sebelum P4 dijalankan
+   ulang dan sebelum layer road-error dipakai dashboard.
 2. Setelah P1/P2 jalan full-area di CI: jalankan ulang P4 (temuan sekarang
    masih sample Menteng — lihat validation notes P4 poin 3.2).
 3. 3 keputusan terbuka lama: boundary full-area P1, gang motorcycle-only
