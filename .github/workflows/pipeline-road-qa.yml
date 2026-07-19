@@ -81,15 +81,29 @@ jobs:
 
       # Insiden run pertama (2026-07-19, run 29689278980): runner shutdown di
       # tengah graph_from_xml tanpa output = kehabisan RAM 16GB (parsing XML
-      # jalan se-Jabodetabek -> MultiDiGraph rakus memori). Swap di /mnt
-      # (disk temp runner, ~60GB lega) memberi headroom; lebih lambat saat
-      # menyentuh swap, tapi selesai — budget timeout-minutes 90 masih cukup.
-      - name: Tambah swap 16GB (graph Jabodetabek > RAM runner)
+      # jalan se-Jabodetabek -> MultiDiGraph rakus memori). Insiden kedua
+      # (run 29690180277): fallocate 16G fixed malah memenuhi disk (/mnt
+      # tidak selega dokumentasi). Solusi: swap DINAMIS — pakai mount paling
+      # lega (/mnt atau /), sisakan margin 6GB utk XML+log, cap 16GB.
+      - name: Tambah swap dinamis (graph Jabodetabek > RAM runner)
         run: |
-          sudo fallocate -l 16G /mnt/swapfile
-          sudo chmod 600 /mnt/swapfile
-          sudo mkswap /mnt/swapfile
-          sudo swapon /mnt/swapfile
+          df -h / /mnt 2>/dev/null || true
+          target=/mnt/swapfile
+          avail_mb=$(df --output=avail -m /mnt 2>/dev/null | tail -1 | tr -d ' ')
+          root_mb=$(df --output=avail -m / | tail -1 | tr -d ' ')
+          if [ -z "$avail_mb" ] || [ "$root_mb" -gt "${avail_mb:-0}" ]; then
+            target=/swapfile; avail_mb=$root_mb
+          fi
+          swap_mb=$(( avail_mb - 6144 ))
+          [ "$swap_mb" -gt 16384 ] && swap_mb=16384
+          if [ "$swap_mb" -lt 2048 ]; then
+            echo "::error::ruang disk tak cukup untuk swap (avail ${avail_mb}MB)"; exit 1
+          fi
+          echo "swap ${swap_mb}MB di $target"
+          sudo fallocate -l ${swap_mb}M "$target"
+          sudo chmod 600 "$target"
+          sudo mkswap "$target"
+          sudo swapon "$target"
           free -h
 
       - name: Konversi .pbf -> OSM XML jalan drivable (2 tahap wajib)
