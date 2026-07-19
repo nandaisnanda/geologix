@@ -1,9 +1,80 @@
 # PROGRESS.md — GeoLogix AI
 
-## Status: Fase 4 — 4/4 WORKFLOW CI TERBUKTI JALAN (run manual pertama
+## Status: Fase 5 — BACKEND + FRONTEND JALAN LOKAL (step 17-18 SPEC selesai,
+## 2026-07-20). Observasi otomatis 3 hari (SPEC step 16) BERJALAN s/d 22 Juli.
+## Sisa Fase 5: deploy (step 19) — ditunda sampai 2 utang keputusan beres.
+
+## Selesai (sesi Fase 5, 2026-07-20 — api/main.py + frontend deck.gl)
+- `src/api/main.py` (SPEC 5.2 urutan 9): FastAPI READ-ONLY, 6 endpoint:
+  /health, /road-errors, /poi-anomalies, /weather-risk (tanpa geometri —
+  deck.gl render dari h3_index, hemat ±90% payload), /aggregated-findings,
+  /pipeline-logs. CORS via env `API_CORS_ORIGINS` (default *).
+  Jalankan: `uvicorn src.api.main:app`.
+- **Semantik filter waktu = SNAPSHOT** (PRD "kemarin vs sekarang"): default
+  anchor = MAX(timestamp) dgn jendela `window_minutes` (road/poi 120 mnt —
+  insert P1 full-area bisa puluhan menit; grid/agregat 15 mnt); `at=` mundur
+  ke batch <= at; `since/until` = rentang eksplisit (riwayat penuh).
+- `/aggregated-findings` DEDUPE (source_pipeline, source_id) keep computed_at
+  terbaru via ROW_NUMBER — 3x run validasi P4 berjarak detik, jendela waktu
+  tak bisa memisahkan; terverifikasi data nyata: 519 baris -> **173 unik**
+  (persis angka validasi P4). lon/lat di-join dari tabel sumber.
+- API TIDAK menulis pipeline_logs (keputusan: request baca bukan run
+  pipeline; mencatatnya mengotori bukti otomasi).
+- Test: **112 pass** (10 baru test_api.py): SQLite in-memory + tabel manual
+  (geom TEXT WKT) + ST_X/ST_Y diregister sbg fungsi Python -> SQL produksi
+  jalan apa adanya tanpa PostGIS; dependency override get_db_engine.
+- **Uji server nyata ke Supabase**: /health ok; weather-risk 1.079 sel;
+  road-errors total 183.568 (= log id 36); poi 2.072; logs 36.
+- `frontend/` (SPEC 5.2 urutan 10): Vite + React 18 + deck.gl 9 + MapLibre
+  (basemap Carto Positron, tanpa API key). 3 layer (H3HexagonLayer risk,
+  ScatterplotLayer road & POI) + panel log + filter waktu datetime-local
+  (WIB -> UTC ISO) + auto-refresh 5 mnt + legenda. `VITE_API_BASE` utk
+  deploy (default localhost:8000). Warna dari skill dataviz tervalidasi
+  (kategorikal slot 1-4 all-pairs PASS; risk = ramp biru sequential).
+- **Layer road error DEFAULT OFF** + peringatan di UI (utang dangling
+  artefak clip); weather + POI default on, limit road 5.000/req.
+- Verifikasi visual: `npm run build` bersih; screenshot headless Chrome —
+  hexagon risk + 2.072 POI + panel log render benar, konversi WIB benar,
+  0 error console. **DIKONFIRMASI USER di browser (2026-07-20): backend +
+  frontend jalan, dashboard menampilkan 3 layer** (basemap yang tak
+  tertangkap screenshot headless terbukti hanya artefak capture).
+
+## Keputusan penting (sesi Fase 5)
+- Bentuk client masih netral: REST JSON generik, dashboard web = pembuktian
+  step 18; kalau user jadi bikin aplikasi, endpoint sama bisa dipakai.
+- deck.gl H3HexagonLayer dipilih persis sesuai PRD ("H3 hexagon layer");
+  geometri hexagon sengaja tidak dikirim API (h3_index cukup).
+- Deploy (step 19) DITUNDA: layer road-error belum layak dipublikasikan
+  sebelum utang keputusan #1 (filter dangling) selesai.
+
+## Langkah selanjutnya (sesi baru — user memilih lanjut FASE 6 dokumentasi)
+0. **Fase 6 (step 20-21): README metodologi** — tulis dari hasil NYATA yang
+   sudah tercatat di file ini + validation notes di tests/ (justifikasi
+   metode, keterbatasan, hasil validasi manual, insiden yang ditangani).
+   Narasi 15 detik + demo flow interview. JANGAN klaim yang belum
+   diverifikasi (mis. deploy belum ada; dangling full-area belum difilter).
+1. Pantau cron s/d 22 Juli (SPEC step 16) — run merah = prioritas interupsi.
+2. 2 UTANG KEPUTUSAN (bawah) — WAJIB sebelum P4 rerun & sebelum deploy;
+   README harus menyebutnya sebagai known limitation, itu justru nilai plus.
+3. Setelah utang beres: rerun P4, lalu deploy Vercel (frontend,
+   set VITE_API_BASE) + Render/Railway (backend) — step 19 (sisa Fase 5).
+
+## 2 UTANG KEPUTUSAN sebelum data full-area dipercaya (MASIH AKTIF)
+1. **182.848 dangling P1 full-area BUKAN semua error nyata** — campuran
+   artefak clip tepi Jabodetabek (runner CI tak memberi boundary polygon)
+   dan cul-de-sac asli. ~730k baris/minggu ke `road_errors` TIDAK
+   berkelanjutan. JANGAN rerun P4 sebelum beres; layer road-error di
+   dashboard sudah default OFF + peringatan.
+2. Kuota Actions private ketat (~1.700-1.800 dari 2.000 mnt/bulan) —
+   kalau road-qa tetap 57 mnt, turunkan ke 2x/minggu atau percepat
+   (filter dangling juga memangkas waktu tulis DB).
+
+---
+
+## Arsip: Fase 4 — CI terbukti jalan (status lama)
+
+## Status lama: Fase 4 — 4/4 WORKFLOW CI TERBUKTI JALAN (run manual pertama
 ## sukses semua, 2026-07-19; log CI nyata di pipeline_logs id 23-36).
-## Observasi otomatis 3 hari (SPEC step 16) BERJALAN s/d 22 Juli.
-## Fase 5 BOLEH dimulai paralel — dengan 2 utang keputusan (lihat bawah).
 
 ## Bukti run CI pertama (2026-07-19, semua via workflow_dispatch)
 - `pipeline-osm-refresh` SUKSES 2m45s: mode `full_download` (log id 26),
