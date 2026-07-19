@@ -23,3 +23,15 @@ export function fmtUtc(isoNaive) {
     minute: "2-digit",
   });
 }
+
+// Waktu relatif ringkas ("5 mnt lalu") untuk stat tile / status bar.
+export function relTime(isoNaive) {
+  if (!isoNaive) return "—";
+  const ms = Date.now() - new Date(isoNaive.slice(0, 19) + "Z").getTime();
+  const m = Math.round(ms / 60000);
+  if (m < 1) return "baru saja";
+  if (m < 60) return `${m} mnt lalu`;
+  const h = Math.round(m / 60);
+  if (h < 48) return `${h} jam lalu`;
+  return `${Math.round(h / 24)} hari lalu`;
+}

@@ -21,6 +21,26 @@
    default ON — data road_errors kini bersih (736 baris full-area + 423
    sample Menteng); dan persempit API_CORS_ORIGINS di Render.
 
+## Selesai (sesi Fase 6 lanjutan, 2026-07-20 — redesign UI/UX dashboard)
+- **Frontend dirombak total (permintaan user "wow & clear")**, commit sesi
+  ini: tema terang/GELAP (toggle + prefers-color-scheme + ?theme= URL;
+  basemap ikut ganti Positron/Dark Matter; warna kategorikal pakai step
+  dark RESMI palet dataviz, bukan flip otomatis), 4 stat tiles, toggle
+  switch per layer dgn legend kontekstual, tooltip HTML berhierarki
+  (nilai menonjol; semua interpolasi di-escape), chip preset waktu
+  Sekarang/Kemarin + snapshot chip mengambang, overlay loading dgn pesan
+  cold-start Render (>4 dtk), badge LIVE/GANGGUAN + retry, panel log dgn
+  nama pipeline pendek + hover detail, responsive mobile (sidebar jadi
+  drawer + tombol ☰). File: colors.js (varian dark), styles.css (token
+  2 tema), App.jsx, Layers.jsx (ganti Legend.jsx), StatTiles.jsx baru,
+  LogPanel.jsx, api.js (+relTime).
+- **Layer road error kini DEFAULT ON** — data road_errors sudah bersih
+  pasca-filter (736 temuan full-area); warning lama yang usang ("filter
+  masih tertunda") diganti keterangan kebijakan `major` yang akurat.
+- Verifikasi: `npm run build` bersih; screenshot headless 3 varian
+  (light/dark/mobile 390px) — tiles menampilkan data live nyata
+  (1.079 sel, 2.072 POI, 736 road error, run terakhir sukses).
+
 ## Selesai (sesi Fase 6, 2026-07-20)
 - **Utang #1 & #2 sesi lalu BERES:**
   - Run CI 29697090519 (pertama dgn --boundary-jabodetabek
