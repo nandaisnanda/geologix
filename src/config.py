@@ -36,6 +36,16 @@ CHIRPS_BASE_URL = (
     or "https://data.chc.ucsb.edu/products/CHIRPS-2.0/global_annual/tifs"
 )
 
+# WorldPop population density Indonesia 2020, 1km UN-adjusted (proxy kriteria
+# "kepadatan populasi terdampak" Pipeline 4, SPEC Bagian 3 P4). GeoTIFF ~10MB,
+# didownload + cache sekali oleh fetch_worldpop.py. `or` (bukan default get):
+# env kosong harus jatuh ke default juga (pelajaran insiden CHIRPS_BASE_URL).
+WORLDPOP_TIF_URL = (
+    os.environ.get("WORLDPOP_TIF_URL")
+    or "https://data.worldpop.org/GIS/Population_Density/"
+    "Global_2000_2020_1km_UNadj/2020/IDN/idn_pd_2020_1km_UNadj.tif"
+)
+
 # --- Threshold Pipeline 1: Road Network QA (Bagian 3.1-3.3) ---
 DANGLING_NODE_DEGREE = 1  # Bagian 3.1: degree(v) = 1 -> dangling node
 

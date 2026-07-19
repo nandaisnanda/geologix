@@ -1,8 +1,65 @@
 # PROGRESS.md — GeoLogix AI
 
-## Status: Fase 4 — 4 workflow CI + prioritize.py SELESAI DIBUAT (belum diuji
-## jalan di GitHub Actions — repo belum di-push; checklist SPEC 5.4 Fase 4
-## = "uji jalan otomatis 3 hari" BELUM terpenuhi)
+## Status: Fase 4 — Pipeline 4 Aggregator SELESAI & jalan nyata (checklist
+## 5.4 P4 terpenuhi); repo di GitHub (nandaisnanda/geologix, PRIVATE);
+## sisa Fase 4: trigger manual 4 workflow CI + pantau 3 hari (SPEC step 16)
+
+## Selesai (sesi Fase 4 lanjutan, 2026-07-19 — P4 jalan nyata + repo GitHub)
+- **Repo GitHub: `nandaisnanda/geologix` (PRIVATE)** — dibuat via gh CLI,
+  push `main`, secret `DATABASE_URL` di-set. Riwayat: sempat dibuat di akun
+  `ananneeeeetunai` (public), lalu dipindah; 4 workflow di repo lama
+  DI-DISABLE (cron dobel = duplikat DB + 2x budget Open-Meteo). Repo lama
+  belum dihapus (butuh manual). PERHATIAN: repo private = 2.000 menit
+  Actions/bulan — jadwal cron ini butuh ±2.700-5.000 menit/bulan, kuota bisa
+  habis pertengahan bulan; pertimbangkan `--visibility public`.
+- `data_ingestion/fetch_worldpop.py`: WorldPop IDN 2020 1km UN-adjusted
+  (jiwa/km2, ~10.5MB, CC BY 4.0), download+cache idempotent, log
+  `worldpop_ingestion`; `sample_density()` rasterio, nodata/negatif -> NaN
+  (tidak diam-diam 0). Konstanta `WORLDPOP_TIF_URL` di config.py (pakai
+  `or`, pelajaran insiden CHIRPS env kosong).
+- Runner `pipeline_4_aggregator/__main__.py`:
+  `python -m src.pipeline_4_aggregator` → baca `road_errors`+`poi_anomalies`
+  (ST_X/ST_Y), dedupe temuan antar-run validasi (kunci identitas, ambil
+  `detected_at` terbaru), rakit 3 kriteria → `prioritize.run()`.
+  Temuan NaN populasi dibuang eksplisit (tercatat di ringkasan).
+- Test: **100 pass** (6 baru: 3 fetch_worldpop raster sintetis + nodata->NaN,
+  3 runner: dedupe+mapping, severity asing ditolak, buang NaN populasi).
+- **Checklist SPEC 5.4 Pipeline 4: TERPENUHI.**
+  - 3x run identik: 173 temuan (141 P1 + 32 P2 pasca-dedupe), bobot
+    [0.5714, 0.2857, 0.1429] CR=0, prio 0.4197-0.9988, top poi_anomalies:79
+    (log id 20-22; 519 baris `aggregated_findings`; WorldPop log id 19).
+  - Validasi manual: `tests/validation_notes_pipeline4.md` — urutan bisa
+    dijelaskan penuh (POI conf 1.0 pusat kota + ease 5 teratas; oneway high
+    ~0.90; dangling medium terbawah road). Cek tangan peringkat 1 cocok.
+  - Hasil tersimpan di DB schema konsisten.
+
+## Keputusan penting (sesi Fase 4 lanjutan)
+- **Sumber temuan P4 = P1 + P2 saja** (SPEC Bagian 3 P4: severity "dari
+  P1/P2"): grid risiko P3 kontinu per jam, bukan "error yang bisa
+  diperbaiki" — tak punya severity/ease bermakna; P3 masuk ringkasan lewat
+  dashboard + pipeline_logs (PRD P4). 
+- **Severity P2 = 1 + 2*confidence_score** (0..1 -> skala 1..3 yang sama
+  dengan mapping P1 low=1/medium=2/high=3).
+- **ease_of_fix per jenis error** (skor manual 1-5 SPEC): poi_anomaly=5,
+  dangling_node=4, oneway_inconsistency=3, disconnected_component=2.
+- **Populasi = WorldPop 2020 1km UN-adjusted** sampling titik temuan;
+  nodata -> temuan dibuang eksplisit, bukan 0.
+- Validasi severity/ease dilakukan SETELAH dedupe (hanya baris terpakai).
+
+## Langkah selanjutnya (sesi baru)
+1. Trigger manual 4 workflow CI (`gh workflow run pipeline-osm-refresh` dulu
+   → memicu road-qa; lalu weather-risk & poi-qa), cek `pipeline_logs`,
+   pantau 3 hari (SPEC step 16). Keputusan visibility repo (private vs
+   public) menentukan kuota menit Actions.
+2. Setelah P1/P2 jalan full-area di CI: jalankan ulang P4 (temuan sekarang
+   masih sample Menteng — lihat validation notes P4 poin 3.2).
+3. 3 keputusan terbuka lama: boundary full-area P1, gang motorcycle-only
+   di filter osmium, jarak-dari-tepi poligon POI area.
+4. Fase 5: `api/main.py` (FastAPI) + frontend deck.gl.
+
+---
+
+## Arsip: Fase 4 sesi awal — workflows + prioritize.py
 
 ## Selesai (sesi Fase 4, 2026-07-19)
 - `.github/workflows/` — 4 workflow (SPEC 5.2 urutan 7, nama persis SPEC 5.1):
