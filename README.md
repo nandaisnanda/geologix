@@ -1,272 +1,479 @@
-# GeoLogix AI — QA Data Geospasial & Peta Risiko Cuaca Jabodetabek
+# GeoLogix AI — Geospatial QA & Weather Risk Mapping for Greater Jakarta
 
-Sistem pipeline geospasial otomatis yang mengaudit kualitas data peta OpenStreetMap
-(jaringan jalan + POI), menghitung peta risiko cuaca per-hexagon, dan memprioritaskan
-temuan untuk ditindaklanjuti — berjalan terjadwal via GitHub Actions, tersimpan di
-PostgreSQL/PostGIS, dan tervisualisasi di dashboard web.
+GeoLogix is an automated geospatial pipeline that checks OpenStreetMap data quality, estimates weather-related risk across Greater Jakarta, and ranks findings by priority.
 
-**Live demo:**
-- Dashboard: **https://geologix.vercel.app**
-- API: **https://geologix-api.onrender.com** (docs di `/docs`)
+The system runs on a schedule through GitHub Actions. Results are stored in PostgreSQL/PostGIS and exposed through a web dashboard.
 
-> Catatan: backend memakai Render free tier — setelah idle, request pertama
-> mengalami *cold start* ±1 menit. Muat ulang kalau data belum muncul.
+**Live demo**
 
----
+* Dashboard: **https://geologix.vercel.app**
+* API: **https://geologix-api.onrender.com** (`/docs` for API documentation)
 
-## Kenapa proyek ini dibangun begini (bukan "AI-powered" dari hari pertama)
-
-Prinsip desainnya: **pakai metode paling sederhana yang bisa dipertanggungjawabkan,
-dan hanya naik ke metode lebih kompleks kalau ada bukti perlunya.**
-
-- Error topologi jalan (jalan buntu palsu, komponen terputus, oneway tanpa jalur
-  balik) adalah masalah **struktur graph** — diselesaikan dengan graph theory
-  deterministik, bukan model prediktif.
-- Anomali posisi POI adalah masalah **statistik distribusi jarak** — diselesaikan
-  dengan IQR yang transparan dan bisa dijelaskan per angka.
-- Kerawanan hujan adalah masalah **multi-kriteria spasial** — diselesaikan dengan
-  metode MCDA baku (AHP + WLC) dan uji signifikansi spasial (Getis-Ord Gi*),
-  bukan skor gabungan sembarang.
-- **ML sengaja belum dipakai.** ML baru bermakna setelah sistem rule-based ini
-  berjalan otomatis berbulan-bulan dan mengakumulasi log historis berlabel —
-  saat itu barulah ada data training dan *baseline* pembanding yang jujur.
-  Lihat [Roadmap ML](#roadmap-ml-kenapa-belum-ada-folder-ml).
-
-Setiap rumus di bawah diimplementasikan persis dari spesifikasi matematika proyek
-(SPEC Bagian 3), diuji unit test terhadap nilai hitungan tangan/analitik, dan
-divalidasi manual terhadap data OSM live.
+> **Note:** The API runs on Render's free tier. After a period of inactivity, the first request can take around a minute because of a cold start. Refresh the dashboard if data does not appear immediately.
 
 ---
 
-## Arsitektur
+## Why the system is built this way
+
+The main design rule is simple:
+
+> **Use the simplest method that can be justified, and only move to something more complex when there is a reason to.**
+
+Not every geospatial problem needs machine learning.
+
+* Road topology errors are **graph problems**, so the road QA pipeline uses deterministic graph algorithms.
+* POI location anomalies are treated as a **distance-distribution problem**, using a transparent IQR-based rule.
+* Weather risk is a **multi-criteria spatial problem**, so the system uses AHP, WLC, and Getis-Ord Gi* rather than an arbitrary combined score.
+* **Machine learning is intentionally not used yet.** The current rule-based system needs to run for a few months first so it can build a meaningful historical dataset with reviewed outcomes. Only then does it make sense to train and compare an ML model against the existing baseline.
+
+Every formula is implemented from the project's mathematical specification (SPEC, Section 3), covered by unit tests against hand-calculated or analytical values, and checked against live OSM data during validation.
+
+---
+
+## Architecture
 
 ```mermaid
 flowchart TD
-    subgraph Ingestion["Data ingestion (terjadwal)"]
-        OSM["Geofabrik .pbf<br/>(topologi jalan)"]
-        SHP["Geofabrik .shp.zip<br/>(layer POI + geometri jalan)"]
-        OM["Open-Meteo<br/>(hujan real-time)"]
-        CH["CHIRPS 2020-2024<br/>(baseline hujan historis)"]
-        WP["WorldPop 2020 1km<br/>(proxy densitas populasi)"]
+    subgraph Ingestion["Scheduled data ingestion"]
+        OSM["Geofabrik .pbf<br/>(road topology)"]
+        SHP["Geofabrik .shp.zip<br/>(POIs + road geometry)"]
+        OM["Open-Meteo<br/>(current rainfall)"]
+        CH["CHIRPS 2020-2024<br/>(historical rainfall baseline)"]
+        WP["WorldPop 2020 1km<br/>(population density proxy)"]
     end
 
-    OSM --> P1["Pipeline 1 — Road QA<br/>graph theory: degree-1, BFS, Tarjan SCC"]
-    SHP --> P2["Pipeline 2 — POI QA<br/>Haversine + IQR outlier"]
-    OM --> P3["Pipeline 3 — Weather Risk<br/>H3 grid + Gi* + AHP + WLC"]
+    OSM --> P1["Pipeline 1 — Road QA<br/>Graph theory: degree-1, BFS, Tarjan SCC"]
+    SHP --> P2["Pipeline 2 — POI QA<br/>Haversine + IQR outliers"]
+    OM --> P3["Pipeline 3 — Weather Risk<br/>H3 + Gi* + AHP + WLC"]
     CH --> P3
     P1 --> DB[("Supabase<br/>PostgreSQL + PostGIS")]
     P2 --> DB
     P3 --> DB
-    DB --> P4["Pipeline 4 — Aggregator<br/>AHP+WLC: severity × populasi × ease"]
+    DB --> P4["Pipeline 4 — Aggregator<br/>AHP + WLC: severity × population × ease"]
     WP --> P4
     P4 --> DB
-    DB --> API["FastAPI (read-only)"]
-    API --> FE["React + deck.gl<br/>3 layer + panel log"]
+    DB --> API["FastAPI<br/>(read-only)"]
+    API --> FE["React + deck.gl<br/>3 map layers + run logs"]
 ```
 
-Dua sumber OSM **sengaja dipisah**: `.pbf` untuk Pipeline 1 (butuh topologi graph
-utuh, dibangun via osmium + OSMnx) dan `.shp.zip` untuk Pipeline 2 (hanya butuh
-geometri POI/jalan, dibaca GeoPandas). Mencampur keduanya menimbulkan
-inkonsistensi filter yang justru jadi sumber false positive.
+The two OSM data sources are intentionally kept separate.
+
+The `.pbf` extract is used by Pipeline 1 because it needs the full road topology and is processed with osmium + OSMnx. Pipeline 2 uses the `.shp.zip` extract because it only needs POI and road geometries and can be handled directly with GeoPandas.
+
+Keeping them separate also avoids mixing filters between the two pipelines, which can otherwise introduce false positives.
 
 ---
 
-## Empat pipeline: metode, justifikasi, hasil nyata
+# Pipelines
 
-### Pipeline 1 — Road Network QA (graph theory)
+## 1. Road Network QA
 
-| Deteksi | Metode | Justifikasi |
-|---|---|---|
-| Dangling node | degree(v) = 1 pada graph tak-berarah yang di-collapse | Ujung jalan menggantung = kandidat digitasi putus; deterministik, tanpa ambang tuning |
-| Disconnected component | BFS connected components, rasio \|Ci\|/\|Cmax\| < 0.05 | Pulau jaringan kecil = kandidat jalan tak tersambung ke jaringan utama |
-| Oneway inconsistency | Tarjan SCC; flag edge oneway lintas-SCC | Edge searah tanpa jalur balik = kandidat tag arah salah / jalur balik belum termapping |
+Pipeline 1 treats the road network as a graph and looks for structural anomalies.
 
-Hasil nyata (run full-area Jabodetabek pertama di CI, 19 Jul 2026): graph
-**703.926 node / 1.708.734 edge**, diproses di runner GitHub Actions standar
-(insiden memori dan penanganannya dicatat di [Insiden](#insiden-nyata--penanganannya)).
+| Check                  | Method                                                | Why                                                                                                                     |   |      |         |                                                                                           |
+| ---------------------- | ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | - | ---- | ------- | ----------------------------------------------------------------------------------------- |
+| Dangling node          | `degree(v) = 1` on an undirected/collapsed graph      | A hanging road end can indicate a broken digitization. The rule is deterministic and does not require threshold tuning. |   |      |         |                                                                                           |
+| Disconnected component | BFS connected components, keeping components where `  | Ci                                                                                                                      | / | Cmax | < 0.05` | Small isolated components may indicate roads that are disconnected from the main network. |
+| Oneway inconsistency   | Tarjan SCC; flag oneway edges crossing SCC boundaries | A one-way edge without a corresponding route back can indicate an incorrect direction tag or missing reverse mapping.   |   |      |         |                                                                                           |
 
-**Temuan penting dari run full-area:** ±180 ribu kandidat dangling (26% node) —
-mayoritas bukan error, melainkan campuran artefak pemotongan boundary dan
-cul-de-sac perumahan asli. Respons: (1) filter boundary Jabodetabek (dangling di
-tepi clip dibuang), (2) kebijakan persist `major` — hanya dead-end di kelas jalan
-arteri (motorway..tertiary + link) yang disimpan sebagai temuan, karena dead-end
-arteri jauh lebih mungkin error nyata daripada ujung gang perumahan. Deteksinya
-tetap utuh; yang diseleksi adalah apa yang layak disimpan sebagai *temuan*.
-Hasil run pertama pasca-filter: dari 179.582 kandidat dangling, **16** yang
-tersimpan (kelas arteri), plus 315 disconnected dan 405 oneway.
+### Full-area run
 
-### Pipeline 2 — POI Validation (Haversine + IQR)
+The first full Greater Jakarta run in CI, on **19 July 2026**, processed:
 
-Jarak tiap POI ke ruas jalan terdekat dihitung Haversine (R = 6.371 km), lalu
-outlier dideteksi dengan batas Tukey Q3 + 1.5×IQR. IQR dipilih karena distribusi
-jarak *right-skewed* — ambang berbasis mean/stdev akan tertarik ekor distribusi.
+* **703,926 nodes**
+* **1,708,734 edges**
+* Standard GitHub Actions runner
 
-Hasil nyata full-area (CI, 19 Jul 2026): **46.979 POI vs 745.268 ruas jalan → 2.072
-outlier (4,4%)**, dengan Q1 = 8,71 m, Q3 = 22,83 m, batas atas = 44,0 m — konsisten
-dengan statistik sample kecamatan (Menteng: 4,4% vs 3,8%). Tiap outlier membawa
-`confidence_score` (gradasi pagar dalam→luar Tukey, 0→1).
+The initial run produced roughly **180,000 dangling-node candidates (26% of nodes)**.
 
-### Pipeline 3 — Weather Risk (H3 + Gi* + AHP + WLC)
+That number was clearly too high to treat as actual errors. Most candidates were either real residential dead ends or artifacts caused by clipping the network at the study-area boundary.
 
-1. Grid **H3 resolusi 7** (1.079 sel Jabodetabek; ~5,2 km²/sel — dipilih karena
-   resolusi model cuaca sumber ~11-25 km, grid lebih halus tidak menambah informasi).
-2. Kriteria 1: hujan real-time Open-Meteo per pusat sel.
-3. Kriteria 2: **Getis-Ord Gi\*** atas baseline CHIRPS 5 tahun (2020-2024) —
-   hotspot hujan historis yang signifikan statistik (p < 0.05), bukan sekadar
-   "daerah yang kelihatan basah".
-4. Kedua kriteria di-Min-Max, diberi bobot **AHP** (eigenvector; run nyata CR = 0,
-   lolos syarat CR ≤ 0.1), digabung **WLC**: RiskIndex = Σ wi·xi.
+The response was to separate **detection** from **what gets persisted as a finding**:
 
-Hasil nyata: 1.079 sel, **348 hotspot** — semuanya di selatan grid
-(Depok selatan/Bogor, mean historis 4.328 vs 2.662 mm/th non-hotspot), konsisten
-dengan gradien orografis "Bogor kota hujan". Bukan artefak.
+1. Remove dangling nodes created by the Greater Jakarta boundary.
+2. Persist `major` dangling findings only on arterial-class roads (`motorway` through `tertiary`, including links).
 
-### Pipeline 4 — Aggregator (prioritas lintas-pipeline)
+This keeps the detector itself intact while making the output useful for review.
 
-Temuan P1 + P2 diprioritaskan dengan AHP + WLC (reuse modul P3 — bukan
-implementasi ulang) atas 3 kriteria: **severity**, **densitas populasi**
-(WorldPop 2020 1km — proxy dampak), **ease of fix** (skor 1-5 per jenis error).
-Matriks pairwise konsisten sempurna: bobot eksak [4/7, 2/7, 1/7], CR = 0.
+After filtering, the first run produced:
 
-Hasil nyata: pada validasi checklist (3× run identik atas sample Menteng),
-173 temuan dengan peringkat teratas tervalidasi hitungan tangan (POI confidence
-1.0 di pusat kota + ease maksimum); run full-area pertama (20 Jul 2026)
-memprioritaskan **2.945 temuan** dengan bobot dan CR identik.
-Grid risiko P3 sengaja **tidak** ikut diagregasi: risiko cuaca kontinu per jam,
-bukan "error yang bisa diperbaiki" — tidak punya severity/ease yang bermakna.
+* **16 persisted dangling findings**
+* **315 disconnected components**
+* **405 oneway findings**
+
+The distinction matters: these are review candidates, not automatic claims that the OSM data is wrong.
 
 ---
 
-## Bukti berjalan otomatis (bukan screenshot sekali jalan)
+## 2. POI Validation
 
-- 4 workflow GitHub Actions: `pipeline-osm-refresh` (mingguan, incremental diff
-  Geofabrik + fallback full download), `pipeline-road-qa` (Sen/Kam + terpicu
-  otomatis setelah refresh via `workflow_run`), `pipeline-poi-qa` (Sen/Kam),
-  `pipeline-weather-risk` (per 6 jam).
-- Setiap run pipeline menulis baris ke tabel `pipeline_logs` (nama, status,
-  jumlah temuan, detail) — termasuk run yang **gagal**. Log kegagalan sengaja
-  tidak dihapus: itu jejak insiden dan bahan pelajaran (lihat bawah).
-- Panel log di dashboard membaca tabel ini langsung — klaim "otomatis" bisa
-  dicek siapa pun dari data, bukan dari kata-kata.
-- Jadwal cron dihemat sadar-kuota (repo private = 2.000 menit Actions/bulan;
-  total jadwal ±1.500 menit/bulan) — mitigasi yang memang direncanakan di
-  spesifikasi risiko proyek.
+Pipeline 2 checks whether POIs are unusually far from mapped roads.
 
-## Validasi manual (checklist tiap pipeline)
+For each POI, the distance to the nearest road is calculated using the Haversine formula with an Earth radius of **6.371 km**.
 
-Setiap pipeline lolos checklist yang sama sebelum dianggap selesai:
-**3× run berturut-turut deterministik + validasi manual sample terhadap sumber
-independen + hasil tersimpan di DB dengan schema konsisten.** Catatan lengkap ada
-di `tests/validation_notes_pipeline*.md`. Ringkasan temuan validasi yang jujur:
+Outliers are detected using the Tukey upper fence:
 
-- **P1 (sample Menteng, dicek ke OSM API live):** rumus-rumusnya benar; false
-  positive sample berasal dari **pra-pemrosesan**, bukan algoritma — gang
-  `motorcar=no` tak ikut graph `drive` (node tampak dangling padahal jalannya
-  ada), dan jalur balik oneway berada di luar polygon yang dipotong.
-- **P2 (32 outlier dibedah satu-satu):** ~1/3 outlier area adalah artefak
-  `representative_point` (kompleks besar yang tepinya menempel jalan — Plaza
-  Indonesia: jarak titik-tengah 83 m, jarak tepi poligon 0 m); 4/4 POI titik
-  terkonfirmasi koordinatnya benar di OSM live (indoor mall / tengah Bundaran HI).
-  Outlier bermakna "jauh dari jalan termapping", bukan otomatis "salah data".
-- **P3:** semua rumus diuji terhadap hitungan tangan; kewajaran geografis dicek
-  (gradien pesisir→Bogor, sel risiko tertinggi bisa dijelaskan komponennya).
-- **P4:** peringkat 1 dicek hitungan tangan; selisih skor antar-peringkat bisa
-  dijelaskan dari bobot per kriteria.
+`Q3 + 1.5 × IQR`
 
-## Keterbatasan yang disadari
+IQR was chosen because the distance distribution is right-skewed. A mean/std-based threshold would be more affected by the long tail.
 
-1. **Temuan = kandidat review, bukan vonis.** Presisi deteksi ditentukan
-   pra-pemrosesan (filter jaringan, pemotongan area), bukan hanya rumus.
-   Validasi sample menunjukkan false positive yang tersisa terpetakan sebabnya.
-2. **Jarak POI area diukur dari `representative_point`**, bukan tepi poligon —
-   kompleks besar yang menempel jalan bisa ikut ter-flag (≈6/32 di sample).
-3. **Skor prioritas P4 relatif per batch** (Min-Max per run) — urutan dalam satu
-   run yang bermakna; membandingkan angka antar-run tidak.
-4. **WorldPop = proyeksi 2020 resolusi 1 km** — proxy densitas, bukan populasi
-   aktual 2026.
-5. **Hotspot Gi\* mencakup 32% sel** — wilayah signifikan bersambung karena
-   gradien orografis kuat; koreksi multiple-testing (FDR) adalah perbaikan lanjutan.
-6. **Perubahan kebijakan data 20 Jul 2026:** temuan dangling sebelum vs sesudah
-   filter boundary + kelas `major` tidak sebanding — akumulasi log konsisten
-   dihitung mulai tanggal ini.
-7. Gang `motorcycle=yes motorcar=no` (relevan armada motor Jakarta) belum masuk
-   filter jaringan — keputusan terbuka yang tercatat.
+### Full-area result
 
-## Insiden nyata & penanganannya
+The first full-area CI run on **19 July 2026** processed:
 
-Semua insiden di bawah terjadi sungguhan selama pengerjaan, jejaknya sengaja
-dibiarkan di `pipeline_logs`:
+* **46,979 POIs**
+* **745,268 road segments**
+* **2,072 outliers (4.4%)**
+* Q1: **8.71 m**
+* Q3: **22.83 m**
+* Upper fence: **44.0 m**
 
-| Insiden | Diagnosis | Penanganan |
-|---|---|---|
-| Semua workflow `startup_failure` 0-1 dtk | Otorisasi kartu billing GitHub gagal → Actions diblokir total | Pelajaran: startup_failure seragam & instan = cek billing, bukan YAML |
-| Road-QA runner mati 12,5 mnt tanpa output | RAM 16 GB habis saat parse graph Jabodetabek | Swap dinamis di runner (pilih mount terlega, cap 16 GB) → sukses 57 mnt |
-| HTTP 429 Open-Meteo | Free tier menghitung per-lokasi (terverifikasi empiris), burst 1.079 lokasi kena limit | Jeda antar-batch + retry backoff khusus 429; cron diturunkan ke per 6 jam agar muat budget harian |
-| `ReadTimeout` Open-Meteo dari runner CI | IP Azure shared | Retry timeout/koneksi di fetcher |
-| Insert pertama P1 gagal `NumericValueOutOfRange` | ID node OSM > 2³¹ | Kolom ID → BigInteger |
-| `.env` berisi `CHIRPS_BASE_URL=` kosong meng-override default | `os.environ.get(k, default)` tidak menolong kalau var ada tapi kosong | Pola `os.environ.get(...) or default` di config |
+The result was broadly consistent with the district-level sample used during development (Menteng: **4.4% vs 3.8%**).
 
-## Roadmap ML (kenapa belum ada folder `ml/`)
+Each flagged POI also gets a `confidence_score` based on how far it falls beyond the Tukey fence, normalized from 0 to 1.
 
-Rencana ML (klasifikasi validitas temuan dari log historis + fitur spasial,
-spatial cross-validation, uji lawan baseline non-ML) **sengaja belum dieksekusi**:
+---
 
-- Data training-nya adalah log historis pipeline ini sendiri. Per 20 Jul 2026,
-  akumulasi log yang **konsisten secara semantik** (pasca-filter dangling) baru
-  dimulai — idealnya butuh 3-6 bulan cron berjalan.
-- Tanpa baseline rule-based yang stabil, klaim "ML lebih baik" tidak bisa diuji.
-  Model hanya akan dipertahankan **kalau menang dari baseline** pada validasi
-  manual; kalau kalah, itu dilaporkan sebagai temuan negatif yang jujur.
+## 3. Weather Risk
 
-## Menjalankan sendiri
+Pipeline 3 combines current rainfall with historical rainfall patterns to produce a spatial risk surface.
 
-Semua sumber data terbuka (OSM/Geofabrik, Open-Meteo, CHIRPS, WorldPop) — tidak
-ada API key berbayar.
+### 1. H3 grid
+
+The study area is divided into **H3 resolution 7**, resulting in **1,079 cells** across Greater Jakarta.
+
+Each cell covers roughly **5.2 km²**.
+
+This resolution was chosen because the underlying weather data has a much coarser spatial resolution (roughly 11–25 km). Going to a much finer grid would create more detail without necessarily adding more information.
+
+### 2. Current rainfall
+
+Current rainfall is retrieved from Open-Meteo for each H3 cell center.
+
+### 3. Historical rainfall hotspots
+
+Historical rainfall from **CHIRPS 2020–2024** is analyzed using **Getis-Ord Gi***.
+
+The goal is to identify statistically significant clusters rather than simply highlight areas with high rainfall values.
+
+Cells with **p < 0.05** are classified as significant hotspots.
+
+### 4. Risk score
+
+Both criteria are Min-Max normalized and weighted using **AHP (Analytic Hierarchy Process)**.
+
+The final score uses **Weighted Linear Combination (WLC)**:
+
+`RiskIndex = Σ wi × xi`
+
+The AHP run produced **CR = 0**, satisfying the required `CR ≤ 0.1`.
+
+### Result
+
+The first full-area result contained:
+
+* **1,079 H3 cells**
+* **348 significant hotspots**
+
+The hotspots were concentrated in the southern part of the study area, particularly around southern Depok and Bogor.
+
+The historical rainfall average was:
+
+* Hotspot cells: **4,328 mm/year**
+* Non-hotspot cells: **2,662 mm/year**
+
+The spatial pattern is consistent with the known rainfall gradient toward the Bogor highlands rather than appearing as a random artifact.
+
+---
+
+## 4. Aggregator
+
+Pipeline 4 ranks findings from Pipelines 1 and 2 so that the most actionable issues can be reviewed first.
+
+It reuses the AHP + WLC implementation from Pipeline 3 instead of implementing another scoring system.
+
+The three criteria are:
+
+1. **Severity**
+2. **Population density** — using WorldPop 2020 1 km data as an impact proxy
+3. **Ease of fix** — a 1–5 score assigned by finding type
+
+The pairwise comparison matrix is perfectly consistent, producing exact weights:
+
+`[4/7, 2/7, 1/7]`
+
+with **CR = 0**.
+
+### Validation
+
+During checklist validation, the same Menteng sample was run three times.
+
+The ranking was deterministic, and the top findings matched hand calculations. For example, a POI with confidence 1.0 in a high-population area and maximum ease-of-fix received the expected high priority.
+
+The first full-area run on **20 July 2026** produced **2,945 prioritized findings** with the same weights and consistency ratio.
+
+Weather risk cells are deliberately **not** included in this ranking.
+
+A weather risk score is a continuous environmental signal that changes over time. It does not represent an error that can be fixed, so assigning it a severity/ease-of-fix score would not have a meaningful interpretation.
+
+---
+
+# Automation
+
+This is not a one-off analysis or a dashboard backed by manually generated data.
+
+The pipelines run automatically through GitHub Actions:
+
+| Workflow                | Schedule                                        |
+| ----------------------- | ----------------------------------------------- |
+| `pipeline-osm-refresh`  | Weekly                                          |
+| `pipeline-road-qa`      | Monday / Thursday + triggered after OSM refresh |
+| `pipeline-poi-qa`       | Monday / Thursday                               |
+| `pipeline-weather-risk` | Every 6 hours                                   |
+
+Every pipeline run writes a record to `pipeline_logs`, including failed runs.
+
+The log contains the pipeline name, status, finding counts, and run details.
+
+Failed runs are intentionally kept instead of being deleted. They are useful for understanding what went wrong and how the system evolved.
+
+The dashboard reads these logs directly from the database, so the automation claim can be checked from the data rather than relying on a screenshot.
+
+The schedules are also intentionally kept within the GitHub Actions budget for a private repository:
+
+* Monthly allowance: **2,000 minutes**
+* Planned usage: roughly **1,500 minutes/month**
+
+---
+
+# Validation
+
+Every pipeline follows the same validation checklist before being considered complete:
+
+1. **Three consecutive deterministic runs**
+2. **Manual validation against an independent source**
+3. **Results written to the database using a consistent schema**
+
+Detailed notes are available in:
+
+```text
+tests/validation_notes_pipeline*.md
+```
+
+### Pipeline 1
+
+A Menteng sample was checked against the live OSM API.
+
+The graph formulas behaved as expected. The main false positives came from preprocessing rather than the graph algorithms themselves.
+
+One example was a `motorcar=no` alley that was excluded from the `drive` network, making an otherwise valid road end look dangling.
+
+Another case involved a reverse oneway segment falling outside the clipped study polygon.
+
+### Pipeline 2
+
+**32 outliers** were manually reviewed.
+
+Around one third of the area-based outliers were caused by using `representative_point` for polygon POIs.
+
+For example, a large complex can physically touch a road while its representative point is tens of meters away. In one case, Plaza Indonesia had a representative-point distance of **83 m**, while the polygon itself touched the road.
+
+Four out of four point-based POIs checked against live OSM data had correct coordinates, including indoor mall locations and a point in the middle of Bundaran HI.
+
+So an outlier should be interpreted as:
+
+> **"Far from a mapped road"**
+
+not:
+
+> **"Wrong OSM data."**
+
+### Pipeline 3
+
+All formulas were checked against hand calculations.
+
+The resulting geography was also reviewed for plausibility, including the coastal-to-Bogor rainfall gradient and the individual components contributing to high-risk cells.
+
+### Pipeline 4
+
+The top-ranked finding was independently recalculated by hand.
+
+Differences between neighboring ranks could also be explained from the individual criterion weights.
+
+---
+
+# Known Limitations
+
+There are several limitations that are intentionally documented rather than hidden.
+
+### 1. Findings are candidates, not verdicts
+
+The system identifies things worth reviewing.
+
+Detection precision depends heavily on preprocessing, network filters, and clipping decisions—not only on the mathematical formulas.
+
+The validation samples were useful for identifying the main sources of false positives.
+
+### 2. Polygon POI distance uses `representative_point`
+
+For area-based POIs, the distance is measured from the representative point rather than the polygon boundary.
+
+Large complexes next to roads can therefore be flagged.
+
+In the manual sample, this affected roughly **6 of 32** reviewed outliers.
+
+### 3. Aggregator scores are batch-relative
+
+Pipeline 4 uses Min-Max normalization per run.
+
+The ranking within a run is meaningful, but the absolute scores should **not** be compared directly between different runs.
+
+### 4. WorldPop is a proxy
+
+The population layer is based on **2020 WorldPop data at 1 km resolution**.
+
+It is used as a population-density proxy, not as an estimate of the actual 2026 population.
+
+### 5. Gi* hotspots cover 32% of cells
+
+The significant hotspot area is relatively large because the rainfall field has a strong spatial gradient.
+
+The next improvement would be to evaluate multiple-testing correction, such as FDR.
+
+### 6. Historical dangling-node counts are not directly comparable
+
+On **20 July 2026**, the dangling-node persistence policy changed to include the boundary filter and `major` road-class filter.
+
+Counts before and after this change therefore do not have the same semantic meaning.
+
+Consistent accumulation starts from that date.
+
+### 7. Motorcycle-access roads are still an open issue
+
+Roads tagged with:
+
+```text
+motorcycle=yes
+motorcar=no
+```
+
+are currently excluded from the main network filter.
+
+This matters for Jakarta, where motorcycle access can be operationally important.
+
+The decision is documented as an open issue rather than silently ignored.
+
+---
+
+# Real Incidents
+
+These incidents actually happened during development and are intentionally preserved in `pipeline_logs`.
+
+| Incident                                                              | Diagnosis                                                                            | Fix                                                                                                                                 |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| All workflows failed with `startup_failure` after 0–1 seconds         | GitHub billing-card authorization failed, blocking Actions                           | Learned to check billing when every workflow fails instantly instead of immediately debugging YAML                                  |
+| Road QA runner died after 12.5 minutes with no output                 | 16 GB RAM exhausted while parsing the full Greater Jakarta graph                     | Added dynamic swap on the runner, selecting the roomiest mount and capping swap at 16 GB; the pipeline then completed in 57 minutes |
+| Open-Meteo returned HTTP 429                                          | The free tier limits requests per location; a burst of 1,079 locations hit the limit | Added batch delays and 429-specific exponential backoff; reduced the schedule to every 6 hours to stay within the daily budget      |
+| Open-Meteo `ReadTimeout` in CI                                        | Shared Azure runner IP/network behavior                                              | Added connection and timeout retries to the fetcher                                                                                 |
+| First Pipeline 1 database insert failed with `NumericValueOutOfRange` | OSM node IDs exceeded the 32-bit integer range                                       | Changed the ID column to `BigInteger`                                                                                               |
+| Empty `CHIRPS_BASE_URL=` in `.env` overrode the default               | `os.environ.get(k, default)` still returns an empty string when the variable exists  | Changed configuration handling to `os.environ.get(...) or default`                                                                  |
+
+These are part of the project's history because they are more useful than pretending the first implementation worked perfectly.
+
+---
+
+# Roadmap: ML
+
+There is no `ml/` directory yet. That's intentional.
+
+The planned ML stage is to classify whether pipeline findings are likely to be valid using:
+
+* Historical pipeline logs
+* Spatial and structural features
+* Spatial cross-validation
+* Comparison against the existing rule-based baseline
+
+The main problem right now is data.
+
+The current pipeline only started producing semantically consistent historical labels after the dangling-node persistence policy changed on **20 July 2026**.
+
+A useful training dataset should therefore accumulate for several months while the automated system continues running.
+
+The plan is to keep the rule-based system as the baseline and only keep an ML model if it actually performs better on held-out validation data.
+
+If ML performs worse, that result should be reported too.
+
+---
+
+# Running Locally
+
+All external datasets used by the project are openly available. No paid API key is required.
 
 ```bash
-python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-cp .env.example .env    # isi DATABASE_URL (PostgreSQL + PostGIS)
+python -m venv .venv
+source .venv/bin/activate
+# Windows: .venv\Scripts\activate
 
-# Jalankan pipeline (contoh)
+pip install -r requirements.txt
+cp .env.example .env
+# Set DATABASE_URL to your PostgreSQL + PostGIS database
+
+# Example pipeline runs
 python -m src.pipeline_2_poi_qa --kecamatan Menteng
 python -m src.pipeline_3_weather_risk
-python -m src.pipeline_1_road_qa --xml <hasil osmium tags-filter>  # lihat docstring graph_builder.py
+python -m src.pipeline_1_road_qa --xml <osmium-tags-filter-output>
 python -m src.pipeline_4_aggregator
 
-# Test (114 unit test, termasuk rumus vs hitungan tangan)
+# Tests
 python -m pytest
 
-# API + frontend
+# API
 uvicorn src.api.main:app
-cd frontend && npm install && npm run dev   # set VITE_API_BASE bila perlu
+
+# Frontend
+cd frontend
+npm install
+npm run dev
 ```
 
-Catatan: konversi `.pbf` produksi butuh `osmium-tool` (tersedia di runner
-Ubuntu CI; di Windows dev dipakai jalur sample via Overpass).
+For details on the Pipeline 1 XML input, see the docstring in `graph_builder.py`.
 
-## Struktur repo
+Production `.pbf` conversion requires `osmium-tool`. It is available on the Ubuntu CI runner; on Windows development environments, the sample workflow can use the Overpass-based path instead.
 
-```
+---
+
+# Repository Structure
+
+```text
 src/
-├── config.py                  # threshold rumus + path (SPEC Bagian 3)
-├── data_ingestion/            # fetch_osm, fetch_osm_poi, fetch_openmeteo, fetch_chirps, fetch_worldpop
-├── pipeline_1_road_qa/        # graph_builder + 3 detektor graph
-├── pipeline_2_poi_qa/         # spatial_join (Haversine) + detect_outliers (IQR)
-├── pipeline_3_weather_risk/   # h3_grid, normalize, ahp_weights, wlc_combine, hotspot_gi_star
-├── pipeline_4_aggregator/     # prioritize (AHP+WLC reuse P3)
-├── db/                        # models (PostGIS SRID 4326) + writer (semua run tercatat)
-└── api/                       # FastAPI read-only
-frontend/                      # React + deck.gl (H3HexagonLayer + Scatterplot + panel log)
-.github/workflows/             # 4 cron pipeline
-tests/                         # 114 test + validation_notes_pipeline1-4.md
+├── config.py                  # thresholds, formulas, and paths
+├── data_ingestion/            # OSM, Open-Meteo, CHIRPS, WorldPop fetchers
+├── pipeline_1_road_qa/        # graph construction + 3 graph detectors
+├── pipeline_2_poi_qa/         # spatial join + Haversine + IQR detection
+├── pipeline_3_weather_risk/   # H3, normalization, AHP, WLC, Gi*
+├── pipeline_4_aggregator/     # finding prioritization using P3 AHP/WLC
+├── db/                        # PostGIS models + database writer
+└── api/                       # read-only FastAPI API
+
+frontend/                      # React + deck.gl dashboard
+.github/workflows/             # scheduled pipeline workflows
+tests/                         # 114 unit tests + validation notes
 ```
 
-## Atribusi data
+---
 
-- Data peta © kontributor [OpenStreetMap](https://www.openstreetmap.org/copyright)
-  (ODbL), ekstrak via [Geofabrik](https://download.geofabrik.de/).
-- Cuaca real-time: [Open-Meteo](https://open-meteo.com/) (CC BY 4.0).
-- Baseline hujan: [CHIRPS v2.0](https://www.chc.ucsb.edu/data/chirps), CHC UC Santa Barbara.
-- Populasi: [WorldPop](https://www.worldpop.org/) 2020 1km UN-adjusted (CC BY 4.0).
-- Basemap dashboard: © [CARTO](https://carto.com/attributions), © OpenStreetMap.
+# Data Sources & Attribution
+
+* Map data: © OpenStreetMap contributors, ODbL, extracted through Geofabrik.
+* Current weather: Open-Meteo, CC BY 4.0.
+* Historical rainfall: CHIRPS v2.0, Climate Hazards Center, UC Santa Barbara.
+* Population: WorldPop 2020 1 km UN-adjusted, CC BY 4.0.
+* Dashboard basemap: © CARTO and © OpenStreetMap.
+
+---
+
+## Project Status
+
+GeoLogix is currently a working research/engineering prototype rather than a production geospatial QA service.
+
+The main pipelines are automated, tested, and running against full-area Greater Jakarta data. The next major step is to let the system accumulate a longer history of reviewed findings, improve preprocessing and false-positive handling, and then evaluate whether ML can actually outperform the existing deterministic baseline.
